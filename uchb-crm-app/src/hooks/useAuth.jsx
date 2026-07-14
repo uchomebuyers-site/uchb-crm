@@ -3,25 +3,39 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
+async function fetchProfile(userId) {
+  if (!userId) return null
+  const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+  return data ?? null
+}
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
-  const [sessionLoading, setSessionLoading] = useState(true)
-  const [profileLoading, setProfileLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (active) {
-        setSession(data.session)
-        setSessionLoading(false)
-      }
-    })
+    async function init() {
+      const { data } = await supabase.auth.getSession()
+      if (!active) return
+      const currentSession = data.session
+      const currentProfile = await fetchProfile(currentSession?.user?.id)
+      if (!active) return
+      setSession(currentSession)
+      setProfile(currentProfile)
+      setLoading(false)
+    }
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next)
-      setSessionLoading(false)
+    init()
+
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+      const nextProfile = await fetchProfile(nextSession?.user?.id)
+      if (!active) return
+      setSession(nextSession)
+      setProfile(nextProfile)
+      setLoading(false)
     })
 
     return () => {
@@ -30,38 +44,11 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  useEffect(() => {
-    const userId = session?.user?.id
-    if (!userId) {
-      setProfile(null)
-      return
-    }
-
-    let active = true
-    setProfileLoading(true)
-
-    supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-      .then(({ data }) => {
-        if (active) {
-          setProfile(data ?? null)
-          setProfileLoading(false)
-        }
-      })
-
-    return () => {
-      active = false
-    }
-  }, [session?.user?.id])
-
   const value = {
     session,
     profile,
-    loading: sessionLoading || profileLoading,
-    isAdmin: profile?.role === 'admin',
+    loading,
+    isAdmin: profile?.role === 'admin' && profile?.status === 'active',
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
