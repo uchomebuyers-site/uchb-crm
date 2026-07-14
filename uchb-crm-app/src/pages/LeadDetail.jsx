@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { supabase, fmtPhone } from '../lib/supabase'
+import { supabase, fmtCurrency, fmtDate, fmtPhone } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import Skeleton from '../components/Skeleton'
+
+const inputClasses =
+  'w-full rounded-xl border border-uchb-teal/20 px-4 py-3 text-base text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold'
+
+const CURRENCY_FIELDS = [
+  { key: 'arv', label: 'ARV' },
+  { key: 'asking_price', label: 'Asking price' },
+  { key: 'repair_estimate', label: 'Repair estimate' },
+  { key: 'target_offer', label: 'Target offer' },
+]
 
 function safeStr(v) {
   return typeof v === 'string' ? v : ''
@@ -13,16 +23,282 @@ function arr(v) {
   return Array.isArray(v) ? v : []
 }
 
-function fmtDateTime(value) {
-  if (!value) return ''
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+function toNumberOrNull(v) {
+  const trimmed = String(v).trim()
+  if (!trimmed) return null
+  const n = Number(trimmed)
+  return Number.isNaN(n) ? null : n
+}
+
+function ChevronIcon({ expanded }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={`h-4 w-4 shrink-0 text-uchb-teal/40 transition-transform ${expanded ? 'rotate-90' : ''}`}
+    >
+      <path
+        fillRule="evenodd"
+        d="M7.21 14.77a.75.75 0 0 1 0-1.06L10.92 10 7.21 6.29a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  )
+}
+
+function CollapsibleSection({ title, summary, children }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-uchb-teal/80">{title}</span>
+          {!expanded && summary && <span className="mt-0.5 block truncate text-xs text-uchb-teal/50">{summary}</span>}
+        </span>
+        <ChevronIcon expanded={expanded} />
+      </button>
+      {expanded && <div className="space-y-3 border-t border-uchb-teal/10 px-4 py-4">{children}</div>}
+    </section>
+  )
+}
+
+function OwnershipSection({ lead, patchLead }) {
+  const [ownerName, setOwnerName] = useState(lead.owner_name || '')
+  const [ownerPhone, setOwnerPhone] = useState(lead.owner_phone || '')
+  const [listingAgentName, setListingAgentName] = useState(lead.listing_agent_name || '')
+  const [listingAgentPhone, setListingAgentPhone] = useState(lead.listing_agent_phone || '')
+  const [listingAgentBrokerage, setListingAgentBrokerage] = useState(lead.listing_agent_brokerage || '')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    await patchLead(
+      {
+        owner_name: safeStr(ownerName).trim() || null,
+        owner_phone: safeStr(ownerPhone).trim() || null,
+        listing_agent_name: safeStr(listingAgentName).trim() || null,
+        listing_agent_phone: safeStr(listingAgentPhone).trim() || null,
+        listing_agent_brokerage: safeStr(listingAgentBrokerage).trim() || null,
+      },
+      'Ownership & listing updated.',
+    )
+    setSaving(false)
+  }
+
+  return (
+    <CollapsibleSection title="Ownership & Listing">
+      <div>
+        <label className="mb-1 block text-sm font-medium text-uchb-teal">Owner (if different from contact)</label>
+        <div className="space-y-2">
+          <input
+            className={inputClasses}
+            value={ownerName}
+            onChange={(e) => setOwnerName(e.target.value)}
+            placeholder="Owner name"
+          />
+          <input
+            className={inputClasses}
+            type="tel"
+            value={ownerPhone}
+            onChange={(e) => setOwnerPhone(e.target.value)}
+            placeholder="Owner phone"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-uchb-teal">On the market?</label>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => patchLead({ is_on_market: false }, 'Marked not on market.')}
+            className={`flex-1 rounded-xl py-2.5 text-sm font-medium ${
+              !lead.is_on_market ? 'bg-uchb-teal text-uchb-cream' : 'border border-uchb-teal/20 text-uchb-teal/60'
+            }`}
+          >
+            Not on market
+          </button>
+          <button
+            type="button"
+            onClick={() => patchLead({ is_on_market: true }, 'Marked on market.')}
+            className={`flex-1 rounded-xl py-2.5 text-sm font-medium ${
+              lead.is_on_market ? 'bg-uchb-teal text-uchb-cream' : 'border border-uchb-teal/20 text-uchb-teal/60'
+            }`}
+          >
+            On market
+          </button>
+        </div>
+      </div>
+
+      {lead.is_on_market && (
+        <div className="space-y-2 rounded-xl bg-uchb-cream/60 p-3">
+          <input
+            className={inputClasses}
+            value={listingAgentName}
+            onChange={(e) => setListingAgentName(e.target.value)}
+            placeholder="Listing agent name"
+          />
+          <input
+            className={inputClasses}
+            type="tel"
+            value={listingAgentPhone}
+            onChange={(e) => setListingAgentPhone(e.target.value)}
+            placeholder="Listing agent phone"
+          />
+          <input
+            className={inputClasses}
+            value={listingAgentBrokerage}
+            onChange={(e) => setListingAgentBrokerage(e.target.value)}
+            placeholder="Brokerage"
+          />
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full rounded-xl bg-uchb-teal py-2.5 text-sm font-medium text-uchb-cream disabled:opacity-60"
+      >
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+    </CollapsibleSection>
+  )
+}
+
+function UnderwritingSection({ lead, patchLead }) {
+  const [arv, setArv] = useState(lead.arv ?? '')
+  const [askingPrice, setAskingPrice] = useState(lead.asking_price ?? '')
+  const [repairEstimate, setRepairEstimate] = useState(lead.repair_estimate ?? '')
+  const [targetOffer, setTargetOffer] = useState(lead.target_offer ?? '')
+  const [underwritingUrl, setUnderwritingUrl] = useState(lead.underwriting_url || '')
+  const [driveFolderUrl, setDriveFolderUrl] = useState(lead.drive_folder_url || '')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    await patchLead(
+      {
+        arv: toNumberOrNull(arv),
+        asking_price: toNumberOrNull(askingPrice),
+        repair_estimate: toNumberOrNull(repairEstimate),
+        target_offer: toNumberOrNull(targetOffer),
+        underwriting_url: safeStr(underwritingUrl).trim() || null,
+        drive_folder_url: safeStr(driveFolderUrl).trim() || null,
+      },
+      'Underwriting updated.',
+    )
+    setSaving(false)
+  }
+
+  const summary = CURRENCY_FIELDS.filter((f) => lead[f.key] !== null && lead[f.key] !== undefined)
+    .map((f) => `${f.label} ${fmtCurrency(lead[f.key])}`)
+    .join(' · ')
+
+  return (
+    <CollapsibleSection title="Underwriting" summary={summary || null}>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-uchb-teal">ARV</label>
+          <input
+            className={inputClasses}
+            type="number"
+            inputMode="decimal"
+            value={arv}
+            onChange={(e) => setArv(e.target.value)}
+            placeholder="0"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-uchb-teal">Asking price</label>
+          <input
+            className={inputClasses}
+            type="number"
+            inputMode="decimal"
+            value={askingPrice}
+            onChange={(e) => setAskingPrice(e.target.value)}
+            placeholder="0"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-uchb-teal">Repair estimate</label>
+          <input
+            className={inputClasses}
+            type="number"
+            inputMode="decimal"
+            value={repairEstimate}
+            onChange={(e) => setRepairEstimate(e.target.value)}
+            placeholder="0"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-uchb-teal">Target offer</label>
+          <input
+            className={inputClasses}
+            type="number"
+            inputMode="decimal"
+            value={targetOffer}
+            onChange={(e) => setTargetOffer(e.target.value)}
+            placeholder="0"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-uchb-teal">Underwriting spreadsheet link</label>
+        {lead.underwriting_url && (
+          <a
+            href={lead.underwriting_url}
+            target="_blank"
+            rel="noreferrer"
+            className="mb-2 inline-block rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-sm font-medium text-uchb-teal"
+          >
+            Open spreadsheet ↗
+          </a>
+        )}
+        <input
+          className={inputClasses}
+          value={underwritingUrl}
+          onChange={(e) => setUnderwritingUrl(e.target.value)}
+          placeholder="https://"
+        />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-uchb-teal">Drive folder link</label>
+        {lead.drive_folder_url && (
+          <a
+            href={lead.drive_folder_url}
+            target="_blank"
+            rel="noreferrer"
+            className="mb-2 inline-block rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-sm font-medium text-uchb-teal"
+          >
+            Open Drive folder ↗
+          </a>
+        )}
+        <input
+          className={inputClasses}
+          value={driveFolderUrl}
+          onChange={(e) => setDriveFolderUrl(e.target.value)}
+          placeholder="https://"
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full rounded-xl bg-uchb-teal py-2.5 text-sm font-medium text-uchb-cream disabled:opacity-60"
+      >
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+    </CollapsibleSection>
+  )
 }
 
 function tempClasses(temp, active) {
@@ -351,13 +627,16 @@ export default function LeadDetail() {
               <div key={a.id} className={`border-l-2 border-uchb-teal/20 pl-3 ${a._pending ? 'opacity-50' : ''}`}>
                 <p className="text-xs font-medium text-uchb-teal/60">
                   <span className="capitalize">{a.type}</span> &middot; {authorsById[a.author_id] || 'Unknown'} &middot;{' '}
-                  {fmtDateTime(a.created_at)}
+                  {fmtDate(a.created_at)}
                 </p>
                 <p className="text-uchb-teal text-sm">{a.body}</p>
               </div>
             ))}
           </div>
         </section>
+
+        <OwnershipSection lead={lead} patchLead={patchLead} />
+        <UnderwritingSection lead={lead} patchLead={patchLead} />
       </main>
     </div>
   )
