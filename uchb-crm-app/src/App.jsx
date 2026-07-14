@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
+import { authHashError } from './lib/authHashError.js'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
 import SignIn from './pages/SignIn'
@@ -11,6 +13,24 @@ import Pipeline from './pages/Pipeline'
 import FollowUps from './pages/FollowUps'
 import AdminUsers from './pages/AdminUsers'
 
+function AuthLinkExpired({ onDismiss }) {
+  return (
+    <div className="min-h-screen bg-uchb-cream flex flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="text-lg font-semibold text-uchb-teal">This sign-in link has expired</p>
+      <p className="text-sm text-uchb-teal/70">
+        Request a new one or sign in with your password below.
+      </p>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="rounded-xl bg-uchb-teal px-6 py-3 font-medium text-uchb-cream"
+      >
+        Back to sign in
+      </button>
+    </div>
+  )
+}
+
 function Home() {
   const { session, loading } = useAuth()
 
@@ -20,6 +40,12 @@ function Home() {
 }
 
 export default function App() {
+  const [authErrorDismissed, setAuthErrorDismissed] = useState(false)
+
+  if (authHashError && !authErrorDismissed) {
+    return <AuthLinkExpired onDismiss={() => setAuthErrorDismissed(true)} />
+  }
+
   return (
     <Routes>
       <Route path="/" element={<Home />} />
@@ -82,6 +108,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

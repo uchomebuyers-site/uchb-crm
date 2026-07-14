@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
+import { useToast } from '../hooks/useToast'
 import AppHeader from '../components/AppHeader'
 import Skeleton from '../components/Skeleton'
 
@@ -13,6 +14,85 @@ const STAGE_BAR_COLORS = {
   gold: 'bg-uchb-gold',
   green: 'bg-green-600',
   gray: 'bg-gray-400',
+}
+
+function SetPasswordForm() {
+  const { showToast } = useToast()
+  const [expanded, setExpanded] = useState(false)
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+
+    if (password.length < 6) {
+      showToast('Password must be at least 6 characters.', 'error')
+      return
+    }
+    if (password !== confirm) {
+      showToast('Passwords do not match.', 'error')
+      return
+    }
+
+    setSaving(true)
+    const { error } = await supabase.auth.updateUser({ password })
+    setSaving(false)
+
+    if (error) {
+      showToast(error.message || 'Could not set password.', 'error')
+      return
+    }
+
+    showToast('Password set.')
+    setPassword('')
+    setConfirm('')
+    setExpanded(false)
+  }
+
+  return (
+    <div className="w-full max-w-xs rounded-2xl bg-white p-4 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full text-sm font-medium text-uchb-teal"
+      >
+        {expanded ? 'Cancel' : 'Set a password'}
+      </button>
+
+      {expanded && (
+        <form onSubmit={handleSubmit} className="mt-3 space-y-2">
+          <input
+            type="password"
+            required
+            minLength={6}
+            autoComplete="new-password"
+            placeholder="New password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded-xl border border-uchb-teal/20 px-3 py-2.5 text-sm text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold"
+          />
+          <input
+            type="password"
+            required
+            minLength={6}
+            autoComplete="new-password"
+            placeholder="Confirm password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="w-full rounded-xl border border-uchb-teal/20 px-3 py-2.5 text-sm text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold"
+          />
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full rounded-xl bg-uchb-teal py-2.5 text-sm font-medium text-uchb-cream disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save password'}
+          </button>
+        </form>
+      )}
+    </div>
+  )
 }
 
 export default function Dashboard() {
@@ -97,6 +177,9 @@ export default function Dashboard() {
 
         <div className="flex flex-col items-center gap-3 pt-2 text-center">
           <p className="text-uchb-teal/70 text-sm">Signed in as {displayName}</p>
+
+          <SetPasswordForm />
+
           <button
             type="button"
             onClick={() => supabase.auth.signOut()}
