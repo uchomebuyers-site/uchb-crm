@@ -7,7 +7,13 @@ export const supabase = createClient(
 
 export function fmtDate(value) {
   if (!value) return ''
-  const d = new Date(value)
+  // Date-only strings (e.g. "2026-07-12", like leads.next_follow_up) parse as
+  // UTC midnight in `new Date()`, which can roll back a day once converted to
+  // local time. Build the date from its Y/M/D parts instead so it stays put.
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  const d = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(value)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString('en-US', {
     month: 'short',
