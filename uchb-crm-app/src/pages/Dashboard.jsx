@@ -1,12 +1,39 @@
 import { useEffect, useState } from 'react'
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
 import AppHeader from '../components/AppHeader'
 import Skeleton from '../components/Skeleton'
 
+// Must match tailwind.config.js `uchb-teal` — recharts needs a literal
+// color value, it can't take a Tailwind class on fill/stroke props.
+const CHART_TEAL = '#06363a'
+
 function arr(v) {
   return Array.isArray(v) ? v : []
+}
+
+function dailyLeadCounts(leads) {
+  const days = []
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    d.setDate(d.getDate() - i)
+    days.push({ time: d.getTime(), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), count: 0 })
+  }
+
+  const byTime = new Map(days.map((d) => [d.time, d]))
+  for (const lead of leads) {
+    if (!lead.created_at) continue
+    const created = new Date(lead.created_at)
+    if (Number.isNaN(created.getTime())) continue
+    created.setHours(0, 0, 0, 0)
+    const bucket = byTime.get(created.getTime())
+    if (bucket) bucket.count += 1
+  }
+
+  return days
 }
 
 const STAGE_BAR_COLORS = {
@@ -133,6 +160,7 @@ export default function Dashboard() {
     count: leads.filter((l) => l.stage === s.id).length,
   }))
   const maxCount = Math.max(1, ...countByStage.map((s) => s.count))
+  const dailyCounts = dailyLeadCounts(leads)
 
   return (
     <div className="min-h-screen bg-uchb-cream">
@@ -142,6 +170,7 @@ export default function Dashboard() {
         {loading ? (
           <div className="space-y-3">
             <Skeleton className="h-24 w-full rounded-2xl" />
+            <Skeleton className="h-44 w-full rounded-2xl" />
             <Skeleton className="h-48 w-full rounded-2xl" />
           </div>
         ) : (
@@ -151,6 +180,34 @@ export default function Dashboard() {
               <p className="mt-1 text-sm text-uchb-cream/70">
                 New lead{newThisWeek === 1 ? '' : 's'} this week
               </p>
+            </div>
+
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <p className="mb-3 text-sm font-semibold text-uchb-teal">New leads, last 14 days</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={dailyCounts} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 10, fill: CHART_TEAL, fillOpacity: 0.6 }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={1}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 10, fill: CHART_TEAL, fillOpacity: 0.6 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={24}
+                  />
+                  <Tooltip
+                    cursor={{ fill: CHART_TEAL, fillOpacity: 0.05 }}
+                    contentStyle={{ borderRadius: 8, borderColor: `${CHART_TEAL}20`, fontSize: 12 }}
+                    labelStyle={{ color: CHART_TEAL, fontWeight: 600 }}
+                  />
+                  <Bar dataKey="count" name="New leads" fill={CHART_TEAL} radius={[4, 4, 0, 0]} maxBarSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
 
             <div className="rounded-2xl bg-white p-4 shadow-sm">

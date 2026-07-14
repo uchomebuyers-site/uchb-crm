@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   DndContext,
   DragOverlay,
@@ -12,6 +13,8 @@ import {
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
 import Skeleton from '../components/Skeleton'
+import OwnerChip from '../components/OwnerChip'
+import OwnerFilter from '../components/OwnerFilter'
 
 function safeStr(v) {
   return typeof v === 'string' ? v : ''
@@ -48,10 +51,13 @@ function daysSince(dateStr) {
   return Math.max(0, Math.floor(diff / 86400000))
 }
 
-function CardBody({ lead, daysAgo }) {
+function CardBody({ lead, daysAgo, ownerName }) {
   return (
     <>
-      <p className="text-uchb-teal text-sm font-semibold">{safeStr(lead.name) || 'Unnamed lead'}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-uchb-teal text-sm font-semibold">{safeStr(lead.name) || 'Unnamed lead'}</p>
+        <OwnerChip name={ownerName} />
+      </div>
       <p className="mt-0.5 text-xs text-uchb-teal/70">{safeStr(lead.property_address) || 'No address'}</p>
       <div className="mt-2 flex items-center gap-1.5">
         {lead.temperature && (
@@ -69,7 +75,8 @@ function CardBody({ lead, daysAgo }) {
   )
 }
 
-function LeadCard({ lead, daysAgo, justDropped }) {
+function LeadCard({ lead, daysAgo, justDropped, ownerName }) {
+  const navigate = useNavigate()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: lead.id })
 
   return (
@@ -77,16 +84,34 @@ function LeadCard({ lead, daysAgo, justDropped }) {
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`touch-none rounded-2xl bg-white p-3 shadow-sm transition-all duration-300 ${
+      className={`touch-none relative rounded-2xl bg-white p-3 pr-8 shadow-sm transition-all duration-300 ${
         isDragging ? 'opacity-30' : ''
       } ${justDropped ? 'scale-105 shadow-xl' : ''}`}
     >
-      <CardBody lead={lead} daysAgo={daysAgo} />
+      <CardBody lead={lead} daysAgo={daysAgo} ownerName={ownerName} />
+      <button
+        type="button"
+        aria-label="Open lead"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation()
+          navigate(`/leads/${lead.id}`)
+        }}
+        className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full text-uchb-teal/50 active:bg-uchb-teal/10"
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+          <path
+            fillRule="evenodd"
+            d="M7.21 14.77a.75.75 0 0 1 0-1.06L10.92 10 7.21 6.29a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </button>
     </div>
   )
 }
 
-function Column({ stage, leads, lastChangeById, justDroppedId }) {
+function Column({ stage, leads, lastChangeById, justDroppedId, adminsById }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
 
   return (
@@ -108,6 +133,7 @@ function Column({ stage, leads, lastChangeById, justDroppedId }) {
             lead={lead}
             daysAgo={daysSince(lastChangeById[lead.id])}
             justDropped={justDroppedId === lead.id}
+            ownerName={adminsById[lead.assigned_to]}
           />
         ))}
         {leads.length === 0 && <p className="px-2 py-4 text-center text-xs text-uchb-teal/40">No leads</p>}
@@ -120,10 +146,14 @@ export default function Pipeline() {
   const [stages, setStages] = useState([])
   const [leads, setLeads] = useState([])
   const [lastChangeById, setLastChangeById] = useState({})
+  const [admins, setAdmins] = useState([])
+  const [ownerFilter, setOwnerFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [activeId, setActiveId] = useState(null)
   const [justDroppedId, setJustDroppedId] = useState(null)
   const justDroppedTimer = useRef(null)
+  const scrollContainerRef = useRef(null)
+  const pointerXRef = useRef(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -134,16 +164,20 @@ export default function Pipeline() {
     let active = true
 
     async function load() {
-      const [stagesRes, leadsRes, historyRes] = await Promise.all([
+      const [stagesRes, leadsRes, historyRes, adminsRes] = await Promise.all([
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
-        supabase.from('leads').select('id, name, property_address, temperature, stage, created_at'),
+        supabase
+          .from('leads')
+          .select('id, name, property_address, temperature, stage, assigned_to, created_at'),
         supabase.from('lead_status_history').select('lead_id, created_at').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('id, full_name, email').eq('role', 'admin'),
       ])
 
       if (!active) return
 
       setStages(arr(stagesRes.data))
       setLeads(arr(leadsRes.data))
+      setAdmins(arr(adminsRes.data))
 
       const changeMap = {}
       for (const row of arr(historyRes.data)) {
@@ -222,13 +256,62 @@ export default function Pipeline() {
     [leads, stages],
   )
 
+  useEffect(() => {
+    if (!activeId) return
+
+    const EDGE = 40
+    const SPEED = 12
+
+    function handlePointerMove(e) {
+      const point = e.touches ? e.touches[0] : e
+      if (point) pointerXRef.current = point.clientX
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('touchmove', handlePointerMove, { passive: true })
+
+    let rafId
+    function tick() {
+      const container = scrollContainerRef.current
+      const x = pointerXRef.current
+      if (container && x != null) {
+        const rect = container.getBoundingClientRect()
+        if (x - rect.left < EDGE) {
+          container.scrollLeft -= SPEED
+        } else if (rect.right - x < EDGE) {
+          container.scrollLeft += SPEED
+        }
+      }
+      rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('touchmove', handlePointerMove)
+      cancelAnimationFrame(rafId)
+      pointerXRef.current = null
+    }
+  }, [activeId])
+
   const activeLead = leads.find((l) => l.id === activeId)
+
+  const adminsById = {}
+  for (const a of admins) adminsById[a.id] = a.full_name || a.email
+
+  const visibleLeads = ownerFilter === 'all' ? leads : leads.filter((l) => l.assigned_to === ownerFilter)
 
   return (
     <div className="min-h-screen bg-uchb-cream">
       <AppHeader title="Pipeline" />
 
       <main className="px-2 py-4">
+        {!loading && admins.length > 0 && (
+          <div className="mb-3 px-2">
+            <OwnerFilter admins={admins} value={ownerFilter} onChange={setOwnerFilter} />
+          </div>
+        )}
+
         {loading ? (
           <div className="flex gap-3 px-2">
             {[0, 1, 2].map((i) => (
@@ -242,22 +325,27 @@ export default function Pipeline() {
             ))}
           </div>
         ) : (
-          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-2 pb-4">
+          <DndContext sensors={sensors} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <div ref={scrollContainerRef} className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-2 pb-4">
               {stages.map((stage) => (
                 <Column
                   key={stage.id}
                   stage={stage}
-                  leads={leads.filter((l) => l.stage === stage.id)}
+                  leads={visibleLeads.filter((l) => l.stage === stage.id)}
                   lastChangeById={lastChangeById}
                   justDroppedId={justDroppedId}
+                  adminsById={adminsById}
                 />
               ))}
             </div>
             <DragOverlay>
               {activeLead ? (
                 <div className="w-[80vw] rounded-2xl bg-white p-3 shadow-xl sm:w-64">
-                  <CardBody lead={activeLead} daysAgo={daysSince(lastChangeById[activeLead.id])} />
+                  <CardBody
+                    lead={activeLead}
+                    daysAgo={daysSince(lastChangeById[activeLead.id])}
+                    ownerName={adminsById[activeLead.assigned_to]}
+                  />
                 </div>
               ) : null}
             </DragOverlay>

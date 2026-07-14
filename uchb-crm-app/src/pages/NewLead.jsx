@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 
 function safeStr(v) {
@@ -27,6 +28,7 @@ const inputClasses =
 
 export default function NewLead() {
   const navigate = useNavigate()
+  const { session } = useAuth()
   const { showToast } = useToast()
 
   const [name, setName] = useState('')
@@ -87,6 +89,7 @@ export default function NewLead() {
         motivation: safeStr(motivation) || null,
         source: sourceId || null,
         temperature: temperature || null,
+        assigned_to: session?.user?.id || null,
       })
       .select('id')
       .single()

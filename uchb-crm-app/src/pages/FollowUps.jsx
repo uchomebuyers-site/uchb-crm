@@ -5,6 +5,8 @@ import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import AppHeader from '../components/AppHeader'
 import Skeleton from '../components/Skeleton'
+import OwnerChip from '../components/OwnerChip'
+import OwnerFilter from '../components/OwnerFilter'
 
 function safeStr(v) {
   return typeof v === 'string' ? v : ''
@@ -33,7 +35,7 @@ function todayISODate() {
 
 const ACTIVITY_TYPES = ['call', 'text', 'note', 'offer']
 
-function FollowUpCard({ lead }) {
+function FollowUpCard({ lead, ownerName }) {
   const navigate = useNavigate()
   const { session } = useAuth()
   const { showToast } = useToast()
@@ -72,7 +74,10 @@ function FollowUpCard({ lead }) {
   return (
     <div className={`rounded-2xl bg-white p-4 shadow-sm ${isOverdue ? 'border-l-4 border-uchb-teal/40' : ''}`}>
       <button type="button" onClick={() => navigate(`/leads/${lead.id}`)} className="block w-full text-left">
-        <p className="font-semibold text-uchb-teal">{safeStr(lead.name) || 'Unnamed lead'}</p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-semibold text-uchb-teal">{safeStr(lead.name) || 'Unnamed lead'}</p>
+          <OwnerChip name={ownerName} />
+        </div>
         <p className="mt-0.5 text-sm text-uchb-teal/70">{safeStr(lead.property_address) || 'No address'}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {lead.temperature && (
@@ -139,6 +144,8 @@ function FollowUpCard({ lead }) {
 
 export default function FollowUps() {
   const [leads, setLeads] = useState([])
+  const [admins, setAdmins] = useState([])
+  const [ownerFilter, setOwnerFilter] = useState('all')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -146,13 +153,14 @@ export default function FollowUps() {
 
     async function load() {
       const today = todayISODate()
-      const [stagesRes, leadsRes] = await Promise.all([
+      const [stagesRes, leadsRes, adminsRes] = await Promise.all([
         supabase.from('stages').select('id, is_terminal'),
         supabase
           .from('leads')
-          .select('id, name, phone, property_address, temperature, next_follow_up, stage')
+          .select('id, name, phone, property_address, temperature, next_follow_up, stage, assigned_to')
           .lte('next_follow_up', today)
           .order('next_follow_up', { ascending: true }),
+        supabase.from('profiles').select('id, full_name, email').eq('role', 'admin'),
       ])
 
       if (!active) return
@@ -160,6 +168,7 @@ export default function FollowUps() {
       const terminalIds = new Set(arr(stagesRes.data).filter((s) => s.is_terminal).map((s) => s.id))
       const filtered = arr(leadsRes.data).filter((l) => l.next_follow_up && !terminalIds.has(l.stage))
       setLeads(filtered)
+      setAdmins(arr(adminsRes.data))
       setLoading(false)
     }
 
@@ -169,19 +178,32 @@ export default function FollowUps() {
     }
   }, [])
 
-  const count = leads.length
+  const adminsById = {}
+  for (const a of admins) adminsById[a.id] = a.full_name || a.email
+
+  const visibleLeads = ownerFilter === 'all' ? leads : leads.filter((l) => l.assigned_to === ownerFilter)
+
+  const count = visibleLeads.length
   const headline =
-    count === 0
+    leads.length === 0
       ? "You're all caught up — no follow-ups due today."
-      : count === 1
-        ? '1 lead needs you today'
-        : `${count} leads need you today`
+      : count === 0
+        ? 'No follow-ups for this filter today.'
+        : count === 1
+          ? '1 lead needs you today'
+          : `${count} leads need you today`
 
   return (
     <div className="min-h-screen bg-uchb-cream">
       <AppHeader title="Follow-ups" />
 
       <main className="px-4 py-4 pb-10">
+        {!loading && admins.length > 0 && (
+          <div className="mb-3">
+            <OwnerFilter admins={admins} value={ownerFilter} onChange={setOwnerFilter} />
+          </div>
+        )}
+
         <p className="mb-4 text-lg font-medium text-uchb-teal">{headline}</p>
 
         {loading ? (
@@ -197,10 +219,14 @@ export default function FollowUps() {
           <div className="mt-8 text-center">
             <p className="text-sm text-uchb-teal/70">Nice work — check back tomorrow.</p>
           </div>
+        ) : visibleLeads.length === 0 ? (
+          <div className="mt-8 text-center">
+            <p className="text-sm text-uchb-teal/70">No follow-ups assigned here.</p>
+          </div>
         ) : (
           <div className="space-y-3">
-            {leads.map((lead) => (
-              <FollowUpCard key={lead.id} lead={lead} />
+            {visibleLeads.map((lead) => (
+              <FollowUpCard key={lead.id} lead={lead} ownerName={adminsById[lead.assigned_to]} />
             ))}
           </div>
         )}

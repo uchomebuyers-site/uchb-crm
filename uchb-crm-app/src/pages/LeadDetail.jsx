@@ -58,6 +58,7 @@ export default function LeadDetail() {
   const [sourcesById, setSourcesById] = useState({})
   const [activities, setActivities] = useState([])
   const [authorsById, setAuthorsById] = useState({})
+  const [admins, setAdmins] = useState([])
   const [loading, setLoading] = useState(true)
 
   const [activityType, setActivityType] = useState('call')
@@ -74,7 +75,7 @@ export default function LeadDetail() {
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
         supabase.from('sources').select('id, label'),
         supabase.from('lead_activity').select('*').eq('lead_id', id).order('created_at', { ascending: false }),
-        supabase.from('profiles').select('id, full_name, email'),
+        supabase.from('profiles').select('id, full_name, email, role'),
       ])
 
       if (!active) return
@@ -89,6 +90,7 @@ export default function LeadDetail() {
       const authMap = {}
       for (const p of arr(profilesRes.data)) authMap[p.id] = p.full_name || p.email
       setAuthorsById(authMap)
+      setAdmins(arr(profilesRes.data).filter((p) => p.role === 'admin'))
 
       setActivities(arr(activitiesRes.data))
       setLoading(false)
@@ -243,6 +245,40 @@ export default function LeadDetail() {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-uchb-teal">Assigned to</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => patchLead({ assigned_to: null }, 'Unassigned.')}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-medium ${
+                  !lead.assigned_to
+                    ? 'bg-uchb-teal text-uchb-cream'
+                    : 'border border-uchb-teal/20 text-uchb-teal/60'
+                }`}
+              >
+                Unassigned
+              </button>
+              {admins.map((a) => {
+                const label = a.full_name || a.email
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => patchLead({ assigned_to: a.id }, `Assigned to ${label}.`)}
+                    className={`flex-1 rounded-xl py-2.5 text-sm font-medium ${
+                      lead.assigned_to === a.id
+                        ? 'bg-uchb-teal text-uchb-cream'
+                        : 'border border-uchb-teal/20 text-uchb-teal/60'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           <div>
