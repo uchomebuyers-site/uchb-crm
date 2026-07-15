@@ -12,6 +12,7 @@ import LeadDetail from './pages/LeadDetail'
 import Pipeline from './pages/Pipeline'
 import FollowUps from './pages/FollowUps'
 import AdminUsers from './pages/AdminUsers'
+import Help from './pages/Help'
 
 function AuthLinkExpired({ onDismiss }) {
   return (
@@ -105,6 +106,14 @@ export default function App() {
             <AdminRoute>
               <AdminUsers />
             </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/help"
+        element={
+          <ProtectedRoute>
+            <Help />
           </ProtectedRoute>
         }
       />

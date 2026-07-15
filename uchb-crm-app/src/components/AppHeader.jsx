@@ -7,6 +7,7 @@ const BASE_LINKS = [
   { to: '/leads', label: 'Leads' },
   { to: '/pipeline', label: 'Pipeline' },
   { to: '/follow-ups', label: 'Follow-ups' },
+  { to: '/help', label: 'Help' },
 ]
 
 export default function AppHeader({ title }) {
