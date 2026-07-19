@@ -22,6 +22,19 @@ export function fmtDate(value) {
   })
 }
 
+export function fmtDateTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 export function fmtPhone(value) {
   if (!value) return ''
   const digits = String(value).replace(/\D/g, '').slice(-10)

@@ -66,6 +66,12 @@ Deno.serve(async (req) => {
     // follow-up update is needed for it.
     const targetRole = role === 'admin' || role === 'member' ? role : 'pending'
 
+    // Check before inviting: if a profile already exists, this is a resend
+    // (GoTrue resends the invite email for an unconfirmed existing user
+    // rather than erroring), which the audit log should distinguish from a
+    // brand-new invite.
+    const { data: existingProfile } = await adminClient.from('profiles').select('id').eq('email', email).maybeSingle()
+
     const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email)
 
     if (inviteError || !invited?.user) {
@@ -82,6 +88,15 @@ Deno.serve(async (req) => {
         return json({ error: `Invite sent, but failed to set role: ${roleUpdateError.message}` }, 500)
       }
     }
+
+    // Runs under the service-role key, so it has no auth.uid() for the
+    // profiles-update trigger to attribute — log the real acting admin here.
+    await adminClient.from('audit_log').insert({
+      actor_id: caller.id,
+      action: existingProfile ? 'user.invite_resent' : 'user.invited',
+      target_user_id: invited.user.id,
+      details: { email, role: targetRole },
+    })
 
     return json({ ok: true, userId: invited.user.id })
   } catch (err) {

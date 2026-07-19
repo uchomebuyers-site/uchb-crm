@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
@@ -109,6 +110,7 @@ export default function AdminUsers() {
   const [inviteRole, setInviteRole] = useState('admin')
   const [inviting, setInviting] = useState(false)
   const [editingId, setEditingId] = useState(null)
+  const [resendingId, setResendingId] = useState(null)
 
   useEffect(() => {
     load()
@@ -143,6 +145,21 @@ export default function AdminUsers() {
     showToast('Invite sent.')
     setInviteEmail('')
     load()
+  }
+
+  async function handleResendInvite(profile) {
+    setResendingId(profile.id)
+    const { data, error } = await supabase.functions.invoke('admin-invite-user', {
+      body: { email: profile.email, role: profile.role },
+    })
+    setResendingId(null)
+
+    if (error || data?.error) {
+      showToast(data?.error || error?.message || 'Could not resend invite.', 'error')
+      return
+    }
+
+    showToast('Invite resent.')
   }
 
   async function toggleStatus(profile) {
@@ -200,7 +217,12 @@ export default function AdminUsers() {
         </section>
 
         <section className="rounded-2xl bg-white p-4 shadow-sm">
-          <p className="mb-3 text-sm font-semibold text-uchb-teal">All users</p>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold text-uchb-teal">All users</p>
+            <Link to="/admin/activity" className="text-xs font-medium text-uchb-teal underline">
+              Activity log →
+            </Link>
+          </div>
           {loading ? (
             <div className="space-y-3">
               <Skeleton className="h-16 w-full" />
@@ -244,6 +266,14 @@ export default function AdminUsers() {
                         className="rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-xs font-medium text-uchb-teal disabled:opacity-40"
                       >
                         {p.status === 'disabled' ? 'Restore' : 'Remove'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={resendingId === p.id}
+                        onClick={() => handleResendInvite(p)}
+                        className="rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-xs font-medium text-uchb-teal disabled:opacity-40"
+                      >
+                        {resendingId === p.id ? 'Sending…' : 'Resend invite'}
                       </button>
                     </div>
                   </div>
