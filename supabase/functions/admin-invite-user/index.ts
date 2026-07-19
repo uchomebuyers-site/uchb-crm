@@ -60,10 +60,11 @@ Deno.serve(async (req) => {
       return json({ error: 'A valid email is required' }, 400)
     }
 
-    // Only 'admin' has any RLS-driven meaning right now (is_admin() checks
-    // exactly this). Anything else is left as 'pending', which is already
-    // the trigger's default — so no follow-up update is needed for it.
-    const targetRole = role === 'admin' ? 'admin' : 'pending'
+    // 'admin' and 'member' both have RLS-driven meaning (is_admin() and
+    // is_team_member() check exactly this). Anything else is left as
+    // 'pending', which is already the trigger's default — so no
+    // follow-up update is needed for it.
+    const targetRole = role === 'admin' || role === 'member' ? role : 'pending'
 
     const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email)
 
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
       return json({ error: inviteError?.message ?? 'Failed to send invite' }, 500)
     }
 
-    if (targetRole === 'admin') {
+    if (targetRole !== 'pending') {
       const { error: roleUpdateError } = await adminClient
         .from('profiles')
         .update({ role: targetRole })

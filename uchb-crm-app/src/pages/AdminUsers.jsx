@@ -15,7 +15,8 @@ function arr(v) {
 
 function roleBadgeClasses(role) {
   if (role === 'admin') return 'bg-uchb-teal text-uchb-cream'
-  return 'bg-uchb-gold/20 text-uchb-gold'
+  if (role === 'member') return 'bg-uchb-gold/20 text-uchb-gold'
+  return 'bg-gray-200 text-gray-600'
 }
 
 function statusBadgeClasses(status) {
@@ -23,14 +24,80 @@ function statusBadgeClasses(status) {
   return 'bg-green-100 text-green-700'
 }
 
-// Only 'admin' has any RLS-driven meaning today — is_admin() checks
-// exactly this. The selector still offers 'pending' for future-proofing
-// (e.g. once other roles exist), but picking it at invite time is a
-// no-op since that's already the trigger's default for new sign-ins.
+// 'admin' = full access, including this Users page. 'member' = full
+// access to leads/pipeline/etc, but not admin-only areas (RLS grants
+// leads/lead_activity/lead_status_history access to both admin and
+// member). 'pending' = signed in but blocked entirely until promoted —
+// this is the DB trigger's default for anyone new, so picking it at
+// invite time is a no-op.
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin' },
-  { value: 'pending', label: 'Pending (no elevated access)' },
+  { value: 'member', label: 'Standard' },
+  { value: 'pending', label: 'Pending (no access)' },
 ]
+
+function UserEditForm({ profile, onSaved, onCancel }) {
+  const { showToast } = useToast()
+  const [fullName, setFullName] = useState(profile.full_name || '')
+  const [role, setRole] = useState(profile.role)
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    const { error } = await supabase
+      .from('profiles')
+      .update({ full_name: safeStr(fullName).trim() || null, role })
+      .eq('id', profile.id)
+    setSaving(false)
+
+    if (error) {
+      showToast(error.message || 'Could not update user.', 'error')
+      return
+    }
+
+    showToast('User updated.')
+    onSaved({ full_name: safeStr(fullName).trim() || null, role })
+  }
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-uchb-teal/10 pt-3">
+      <input
+        value={fullName}
+        onChange={(e) => setFullName(e.target.value)}
+        placeholder="Full name"
+        className="w-full rounded-xl border border-uchb-teal/20 px-3 py-2.5 text-sm text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold"
+      />
+      <select
+        value={role}
+        onChange={(e) => setRole(e.target.value)}
+        className="w-full rounded-xl border border-uchb-teal/20 px-3 py-2.5 text-sm text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold"
+      >
+        {ROLE_OPTIONS.map((r) => (
+          <option key={r.value} value={r.value}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="flex-1 rounded-xl bg-uchb-teal py-2.5 text-sm font-medium text-uchb-cream disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 rounded-xl border border-uchb-teal/20 py-2.5 text-sm font-medium text-uchb-teal"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
 
 export default function AdminUsers() {
   const { session } = useAuth()
@@ -41,6 +108,7 @@ export default function AdminUsers() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('admin')
   const [inviting, setInviting] = useState(false)
+  const [editingId, setEditingId] = useState(null)
 
   useEffect(() => {
     load()
@@ -141,36 +209,55 @@ export default function AdminUsers() {
           ) : (
             <div className="space-y-3">
               {profiles.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-uchb-teal/10 p-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-uchb-teal">
-                      {safeStr(p.full_name) || safeStr(p.email) || 'Unknown'}
-                    </p>
-                    <p className="truncate text-xs text-uchb-teal/60">{p.email}</p>
-                    <div className="mt-1.5 flex gap-1.5">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${roleBadgeClasses(p.role)}`}
+                <div key={p.id} className="rounded-xl border border-uchb-teal/10 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-uchb-teal">
+                        {safeStr(p.full_name) || safeStr(p.email) || 'Unknown'}
+                      </p>
+                      <p className="truncate text-xs text-uchb-teal/60">{p.email}</p>
+                      <div className="mt-1.5 flex gap-1.5">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${roleBadgeClasses(p.role)}`}
+                        >
+                          {p.role}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${statusBadgeClasses(p.status)}`}
+                        >
+                          {p.status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setEditingId((id) => (id === p.id ? null : p.id))}
+                        className="rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-xs font-medium text-uchb-teal"
                       >
-                        {p.role}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${statusBadgeClasses(p.status)}`}
+                        {editingId === p.id ? 'Cancel' : 'Edit'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={p.id === session?.user?.id}
+                        onClick={() => toggleStatus(p)}
+                        className="rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-xs font-medium text-uchb-teal disabled:opacity-40"
                       >
-                        {p.status}
-                      </span>
+                        {p.status === 'disabled' ? 'Restore' : 'Remove'}
+                      </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={p.id === session?.user?.id}
-                    onClick={() => toggleStatus(p)}
-                    className="shrink-0 rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-xs font-medium text-uchb-teal disabled:opacity-40"
-                  >
-                    {p.status === 'disabled' ? 'Restore' : 'Remove'}
-                  </button>
+
+                  {editingId === p.id && (
+                    <UserEditForm
+                      profile={p}
+                      onCancel={() => setEditingId(null)}
+                      onSaved={(fields) => {
+                        setProfiles((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...fields } : x)))
+                        setEditingId(null)
+                      }}
+                    />
+                  )}
                 </div>
               ))}
             </div>

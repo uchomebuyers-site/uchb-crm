@@ -170,7 +170,8 @@ export default function Pipeline() {
           .from('leads')
           .select('id, name, property_address, temperature, stage, assigned_to, created_at'),
         supabase.from('lead_status_history').select('lead_id, created_at').order('created_at', { ascending: false }),
-        supabase.from('profiles').select('id, full_name, email').eq('role', 'admin'),
+        // 'admin' and 'member' are both real team members who can be assigned leads.
+        supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
       ])
 
       if (!active) return

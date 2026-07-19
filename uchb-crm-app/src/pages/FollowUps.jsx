@@ -160,7 +160,8 @@ export default function FollowUps() {
           .select('id, name, phone, property_address, temperature, next_follow_up, stage, assigned_to')
           .lte('next_follow_up', today)
           .order('next_follow_up', { ascending: true }),
-        supabase.from('profiles').select('id, full_name, email').eq('role', 'admin'),
+        // 'admin' and 'member' are both real team members who can be assigned leads.
+        supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
       ])
 
       if (!active) return

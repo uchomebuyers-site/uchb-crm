@@ -366,7 +366,7 @@ export default function LeadDetail() {
       const authMap = {}
       for (const p of arr(profilesRes.data)) authMap[p.id] = p.full_name || p.email
       setAuthorsById(authMap)
-      setAdmins(arr(profilesRes.data).filter((p) => p.role === 'admin'))
+      setAdmins(arr(profilesRes.data).filter((p) => p.role === 'admin' || p.role === 'member'))
 
       setActivities(arr(activitiesRes.data))
       setLoading(false)
