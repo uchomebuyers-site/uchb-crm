@@ -396,6 +396,15 @@ export default function LeadDetail() {
     if (successMessage) showToast(successMessage)
   }
 
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      showToast('Link copied.')
+    } catch {
+      showToast('Could not copy link.', 'error')
+    }
+  }
+
   async function handleActivitySubmit(e) {
     e.preventDefault()
     const body = safeStr(activityBody).trim()
@@ -473,9 +482,18 @@ export default function LeadDetail() {
   return (
     <div className="min-h-screen bg-uchb-cream">
       <header className="bg-uchb-teal px-6 py-4">
-        <Link to="/leads" className="text-uchb-cream/70 text-sm">
-          &larr; Leads
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link to="/leads" className="text-uchb-cream/70 text-sm">
+            &larr; Leads
+          </Link>
+          <button
+            type="button"
+            onClick={copyLink}
+            className="rounded-lg bg-uchb-cream/10 px-2.5 py-1.5 text-xs font-medium text-uchb-cream"
+          >
+            Copy link
+          </button>
+        </div>
         <h1 className="text-uchb-cream text-lg font-semibold">{safeStr(lead.name) || 'Unnamed lead'}</h1>
       </header>
 
