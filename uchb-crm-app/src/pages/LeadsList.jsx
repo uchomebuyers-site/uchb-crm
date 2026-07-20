@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, fmtDate, fmtPhone } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
 import Skeleton from '../components/Skeleton'
 import AppHeader from '../components/AppHeader'
 import OwnerChip from '../components/OwnerChip'
@@ -22,6 +24,7 @@ function tempClasses(temp) {
 }
 
 const TEMP_RANK = { Hot: 0, Warm: 1, Cold: 2 }
+const ACTIVITY_TYPES = ['call', 'text', 'note', 'offer']
 
 const COLUMNS = [
   { key: 'name', label: 'Name' },
@@ -32,6 +35,7 @@ const COLUMNS = [
   { key: 'owner', label: 'Owner' },
   { key: 'created_at', label: 'Created' },
 ]
+const ALL_COLUMN_KEYS = COLUMNS.map((c) => c.key)
 
 function compareLeads(a, b, field, direction, stageSortOrder, adminsById) {
   let result = 0
@@ -49,6 +53,35 @@ function compareLeads(a, b, field, direction, stageSortOrder, adminsById) {
   }
 
   return direction === 'asc' ? result : -result
+}
+
+function renderCell(lead, key, stagesById, adminsById) {
+  switch (key) {
+    case 'name':
+      return safeStr(lead.name) || 'Unnamed lead'
+    case 'property_address':
+      return safeStr(lead.property_address) || '—'
+    case 'phone':
+      return lead.phone ? fmtPhone(lead.phone) : '—'
+    case 'stage':
+      return (
+        <span className="rounded-full bg-uchb-teal/5 px-2.5 py-1 text-xs font-medium text-uchb-teal/70">
+          {stagesById[lead.stage] || 'New'}
+        </span>
+      )
+    case 'temperature':
+      return lead.temperature ? (
+        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${tempClasses(lead.temperature)}`}>
+          {lead.temperature}
+        </span>
+      ) : null
+    case 'owner':
+      return adminsById[lead.assigned_to] || '—'
+    case 'created_at':
+      return fmtDate(lead.created_at)
+    default:
+      return null
+  }
 }
 
 function toCsvValue(value) {
@@ -79,8 +112,152 @@ function exportCsv(leads, stagesById, adminsById) {
   URL.revokeObjectURL(url)
 }
 
+function ColumnsMenu({ visibleColumns, onToggle }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="rounded-xl border border-uchb-teal/20 bg-white px-4 py-2.5 text-sm font-medium text-uchb-teal"
+      >
+        Columns
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-2xl bg-white p-2 shadow-xl">
+            {COLUMNS.map((col) => (
+              <label
+                key={col.key}
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-uchb-teal has-[:disabled]:opacity-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={visibleColumns.includes(col.key)}
+                  disabled={col.key === 'name'}
+                  onChange={() => onToggle(col.key)}
+                />
+                {col.label}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function LeadCard({ lead, stagesById, ownerName }) {
+  const navigate = useNavigate()
+  const { session } = useAuth()
+  const { showToast } = useToast()
+  const [expanded, setExpanded] = useState(false)
+  const [activityType, setActivityType] = useState('call')
+  const [body, setBody] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleLog(e) {
+    e.preventDefault()
+    const trimmed = body.trim()
+    if (!trimmed) return
+
+    setSaving(true)
+    const { error } = await supabase.from('lead_activity').insert({
+      lead_id: lead.id,
+      author_id: session?.user?.id,
+      type: activityType,
+      body: trimmed,
+    })
+    setSaving(false)
+
+    if (error) {
+      showToast('Could not log activity.', 'error')
+      return
+    }
+
+    showToast('Activity logged.')
+    setBody('')
+    setExpanded(false)
+  }
+
+  return (
+    <div className="rounded-2xl bg-white p-4 shadow-sm">
+      <button type="button" onClick={() => navigate(`/leads/${lead.id}`)} className="block w-full text-left">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-uchb-teal font-semibold">{safeStr(lead.name) || 'Unnamed lead'}</p>
+          <OwnerChip name={ownerName} />
+        </div>
+        <p className="mt-0.5 text-sm text-uchb-teal/70">{safeStr(lead.property_address) || 'No address'}</p>
+        <div className="mt-3 flex items-center gap-2">
+          {lead.temperature && (
+            <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${tempClasses(lead.temperature)}`}>
+              {lead.temperature}
+            </span>
+          )}
+          <span className="rounded-full bg-uchb-teal/5 px-2.5 py-1 text-xs font-medium text-uchb-teal/70">
+            {stagesById[lead.stage] || 'New'}
+          </span>
+        </div>
+      </button>
+
+      <div className="mt-3 flex items-center gap-3">
+        {lead.phone && (
+          <a href={`tel:${lead.phone}`} className="text-sm text-uchb-teal underline">
+            {fmtPhone(lead.phone)}
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="ml-auto rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-sm font-medium text-uchb-teal"
+        >
+          {expanded ? 'Cancel' : 'Log'}
+        </button>
+      </div>
+
+      {expanded && (
+        <form onSubmit={handleLog} className="mt-3 space-y-2 border-t border-uchb-teal/10 pt-3">
+          <div className="flex gap-2">
+            {ACTIVITY_TYPES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setActivityType(t)}
+                className={`flex-1 rounded-xl py-2 text-xs font-medium capitalize ${
+                  activityType === t ? 'bg-uchb-teal text-uchb-cream' : 'border border-uchb-teal/20 text-uchb-teal/60'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={2}
+            placeholder="What happened?"
+            className="w-full rounded-xl border border-uchb-teal/20 px-3 py-2 text-sm text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold"
+          />
+          <button
+            type="submit"
+            disabled={saving || !body.trim()}
+            className="w-full rounded-xl bg-uchb-teal py-2.5 text-sm font-medium text-uchb-cream disabled:opacity-60"
+          >
+            Log activity
+          </button>
+        </form>
+      )}
+    </div>
+  )
+}
+
 export default function LeadsList() {
   const navigate = useNavigate()
+  const { profile, session } = useAuth()
+  const { showToast } = useToast()
+
   const [leads, setLeads] = useState([])
   const [stages, setStages] = useState([])
   const [admins, setAdmins] = useState([])
@@ -88,6 +265,9 @@ export default function LeadsList() {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState({ field: 'created_at', direction: 'desc' })
   const [loading, setLoading] = useState(true)
+  const [visibleColumns, setVisibleColumns] = useState(ALL_COLUMN_KEYS)
+  const [prefsLoaded, setPrefsLoaded] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
 
   useEffect(() => {
     let active = true
@@ -117,6 +297,27 @@ export default function LeadsList() {
     }
   }, [])
 
+  useEffect(() => {
+    if (profile && !prefsLoaded) {
+      const saved = profile.leads_column_prefs?.columns
+      if (Array.isArray(saved) && saved.length > 0) {
+        setVisibleColumns(saved.filter((k) => ALL_COLUMN_KEYS.includes(k)))
+      }
+      setPrefsLoaded(true)
+    }
+  }, [profile, prefsLoaded])
+
+  function toggleColumn(key) {
+    if (key === 'name') return
+    setVisibleColumns((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+      if (session?.user?.id) {
+        supabase.from('profiles').update({ leads_column_prefs: { columns: next } }).eq('id', session.user.id).then()
+      }
+      return next
+    })
+  }
+
   const stagesById = {}
   const stageSortOrder = {}
   for (const s of stages) {
@@ -144,11 +345,45 @@ export default function LeadsList() {
     [filteredLeads, sort, stages, admins],
   )
 
+  const displayColumns = COLUMNS.filter((c) => visibleColumns.includes(c.key))
+
   function toggleSort(field) {
     setSort((prev) =>
       prev.field === field ? { field, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { field, direction: 'asc' },
     )
   }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const allSelected = visibleLeads.length > 0 && visibleLeads.every((l) => prev.has(l.id))
+      return allSelected ? new Set() : new Set(visibleLeads.map((l) => l.id))
+    })
+  }
+
+  function toggleSelectOne(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkUpdate(fields, message) {
+    const ids = [...selectedIds]
+    const { error } = await supabase.from('leads').update(fields).in('id', ids)
+
+    if (error) {
+      showToast('Bulk update failed.', 'error')
+      return
+    }
+
+    setLeads((prev) => prev.map((l) => (ids.includes(l.id) ? { ...l, ...fields } : l)))
+    showToast(message)
+    setSelectedIds(new Set())
+  }
+
+  const allVisibleSelected = visibleLeads.length > 0 && visibleLeads.every((l) => selectedIds.has(l.id))
 
   return (
     <div className="min-h-screen bg-uchb-cream">
@@ -167,6 +402,7 @@ export default function LeadsList() {
             />
           </div>
           <div className="hidden gap-2 lg:flex">
+            <ColumnsMenu visibleColumns={visibleColumns} onToggle={toggleColumn} />
             <button
               type="button"
               onClick={() => exportCsv(visibleLeads, stagesById, adminsById)}
@@ -184,6 +420,59 @@ export default function LeadsList() {
             </button>
           </div>
         </div>
+
+        {selectedIds.size > 0 && (
+          <div className="mb-3 hidden items-center gap-3 rounded-xl bg-uchb-teal px-4 py-2.5 lg:flex">
+            <span className="text-sm font-medium text-uchb-cream">{selectedIds.size} selected</span>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) bulkUpdate({ stage: e.target.value }, `Moved ${selectedIds.size} lead(s).`)
+                e.target.value = ''
+              }}
+              className="rounded-lg border-none bg-uchb-cream/10 px-2 py-1.5 text-sm text-uchb-cream"
+            >
+              <option value="" disabled>
+                Change stage…
+              </option>
+              {stages.map((s) => (
+                <option key={s.id} value={s.id} className="text-uchb-teal">
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  const assignedTo = e.target.value === 'unassigned' ? null : e.target.value
+                  bulkUpdate({ assigned_to: assignedTo }, `Reassigned ${selectedIds.size} lead(s).`)
+                }
+                e.target.value = ''
+              }}
+              className="rounded-lg border-none bg-uchb-cream/10 px-2 py-1.5 text-sm text-uchb-cream"
+            >
+              <option value="" disabled>
+                Reassign…
+              </option>
+              <option value="unassigned" className="text-uchb-teal">
+                Unassigned
+              </option>
+              {admins.map((a) => (
+                <option key={a.id} value={a.id} className="text-uchb-teal">
+                  {a.full_name || a.email}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="ml-auto text-sm text-uchb-cream/70 underline"
+            >
+              Clear
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div className="space-y-3">
@@ -216,7 +505,10 @@ export default function LeadsList() {
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-uchb-teal/10 text-xs font-medium text-uchb-teal/60">
-                    {COLUMNS.map((col) => (
+                    <th className="w-10 px-4 py-3">
+                      <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} />
+                    </th>
+                    {displayColumns.map((col) => (
                       <th key={col.key} className="px-4 py-3">
                         <button
                           type="button"
@@ -237,23 +529,21 @@ export default function LeadsList() {
                       onClick={() => navigate(`/leads/${lead.id}`)}
                       className="cursor-pointer border-b border-uchb-teal/5 last:border-0 hover:bg-uchb-cream/60"
                     >
-                      <td className="px-4 py-3 font-medium text-uchb-teal">{safeStr(lead.name) || 'Unnamed lead'}</td>
-                      <td className="px-4 py-3 text-uchb-teal/70">{safeStr(lead.property_address) || '—'}</td>
-                      <td className="px-4 py-3 text-uchb-teal/70">{lead.phone ? fmtPhone(lead.phone) : '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-uchb-teal/5 px-2.5 py-1 text-xs font-medium text-uchb-teal/70">
-                          {stagesById[lead.stage] || 'New'}
-                        </span>
+                      <td className="w-10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(lead.id)}
+                          onChange={() => toggleSelectOne(lead.id)}
+                        />
                       </td>
-                      <td className="px-4 py-3">
-                        {lead.temperature && (
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${tempClasses(lead.temperature)}`}>
-                            {lead.temperature}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-uchb-teal/70">{adminsById[lead.assigned_to] || '—'}</td>
-                      <td className="px-4 py-3 text-uchb-teal/70">{fmtDate(lead.created_at)}</td>
+                      {displayColumns.map((col) => (
+                        <td
+                          key={col.key}
+                          className={`px-4 py-3 ${col.key === 'name' ? 'font-medium text-uchb-teal' : 'text-uchb-teal/70'}`}
+                        >
+                          {renderCell(lead, col.key, stagesById, adminsById)}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -264,31 +554,7 @@ export default function LeadsList() {
             <ul className="space-y-3 lg:hidden">
               {visibleLeads.map((lead) => (
                 <li key={lead.id}>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/leads/${lead.id}`)}
-                    className="w-full rounded-2xl bg-white p-4 text-left shadow-sm active:bg-uchb-cream"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-uchb-teal font-semibold">{safeStr(lead.name) || 'Unnamed lead'}</p>
-                      <OwnerChip name={adminsById[lead.assigned_to]} />
-                    </div>
-                    <p className="mt-0.5 text-sm text-uchb-teal/70">
-                      {safeStr(lead.property_address) || 'No address'}
-                    </p>
-                    <div className="mt-3 flex items-center gap-2">
-                      {lead.temperature && (
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${tempClasses(lead.temperature)}`}
-                        >
-                          {lead.temperature}
-                        </span>
-                      )}
-                      <span className="rounded-full bg-uchb-teal/5 px-2.5 py-1 text-xs font-medium text-uchb-teal/70">
-                        {stagesById[lead.stage] || 'New'}
-                      </span>
-                    </div>
-                  </button>
+                  <LeadCard lead={lead} stagesById={stagesById} ownerName={adminsById[lead.assigned_to]} />
                 </li>
               ))}
             </ul>
