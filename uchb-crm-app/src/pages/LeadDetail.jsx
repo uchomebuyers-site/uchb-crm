@@ -301,6 +301,153 @@ function UnderwritingSection({ lead, patchLead }) {
   )
 }
 
+function ContactSection({ lead, sourcesById, patchLead }) {
+  const { showToast } = useToast()
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(lead.name || '')
+  const [phone, setPhone] = useState(lead.phone || '')
+  const [propertyAddress, setPropertyAddress] = useState(lead.property_address || '')
+  const [email, setEmail] = useState(lead.email || '')
+  const [timelineToSell, setTimelineToSell] = useState(lead.timeline_to_sell || '')
+  const [motivation, setMotivation] = useState(lead.motivation || '')
+  const [notes, setNotes] = useState(lead.notes || '')
+  const [saving, setSaving] = useState(false)
+
+  function startEditing() {
+    setName(lead.name || '')
+    setPhone(lead.phone || '')
+    setPropertyAddress(lead.property_address || '')
+    setEmail(lead.email || '')
+    setTimelineToSell(lead.timeline_to_sell || '')
+    setMotivation(lead.motivation || '')
+    setNotes(lead.notes || '')
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    const trimmedName = safeStr(name).trim()
+    const trimmedPhone = safeStr(phone).trim()
+    const trimmedAddress = safeStr(propertyAddress).trim()
+
+    if (!trimmedName || !trimmedPhone || !trimmedAddress) {
+      showToast('Name, phone, and address are required.', 'error')
+      return
+    }
+
+    setSaving(true)
+    await patchLead(
+      {
+        name: trimmedName,
+        phone: trimmedPhone,
+        property_address: trimmedAddress,
+        email: safeStr(email).trim() || null,
+        timeline_to_sell: safeStr(timelineToSell).trim() || null,
+        motivation: safeStr(motivation).trim() || null,
+        notes: safeStr(notes).trim() || null,
+      },
+      'Contact info updated.',
+    )
+    setSaving(false)
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <section className="space-y-2 rounded-2xl bg-white p-4 shadow-sm">
+        {lead.phone && (
+          <a href={`tel:${lead.phone}`} className="block text-uchb-teal underline">
+            {fmtPhone(lead.phone)}
+          </a>
+        )}
+        {lead.property_address && (
+          <a
+            href={`https://maps.apple.com/?q=${encodeURIComponent(lead.property_address)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="block text-uchb-teal underline"
+          >
+            {lead.property_address}
+          </a>
+        )}
+        {lead.email && <p className="text-uchb-teal/70 text-sm">{lead.email}</p>}
+        {lead.source && <p className="text-uchb-teal/70 text-sm">Source: {sourcesById[lead.source] || '—'}</p>}
+        {lead.timeline_to_sell && <p className="text-uchb-teal/70 text-sm">Timeline: {lead.timeline_to_sell}</p>}
+        {lead.motivation && <p className="text-uchb-teal/70 text-sm">Motivation: {lead.motivation}</p>}
+        {lead.notes && <p className="text-uchb-teal/70 text-sm">Notes: {lead.notes}</p>}
+        <button
+          type="button"
+          onClick={startEditing}
+          className="mt-1 rounded-lg bg-uchb-teal/5 px-3 py-1.5 text-sm font-medium text-uchb-teal"
+        >
+          Edit
+        </button>
+      </section>
+    )
+  }
+
+  return (
+    <section className="space-y-2 rounded-2xl bg-white p-4 shadow-sm">
+      <input className={inputClasses} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+      <input
+        className={inputClasses}
+        type="tel"
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        placeholder="Phone"
+      />
+      <input
+        className={inputClasses}
+        value={propertyAddress}
+        onChange={(e) => setPropertyAddress(e.target.value)}
+        placeholder="Property address"
+      />
+      <input
+        className={inputClasses}
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="Email"
+      />
+      <input
+        className={inputClasses}
+        value={timelineToSell}
+        onChange={(e) => setTimelineToSell(e.target.value)}
+        placeholder="Timeline to sell"
+      />
+      <input
+        className={inputClasses}
+        value={motivation}
+        onChange={(e) => setMotivation(e.target.value)}
+        placeholder="Motivation"
+      />
+      <textarea
+        className={inputClasses}
+        rows={3}
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="flex-1 rounded-xl bg-uchb-teal py-2.5 text-sm font-medium text-uchb-cream disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="flex-1 rounded-xl border border-uchb-teal/20 py-2.5 text-sm font-medium text-uchb-teal"
+        >
+          Cancel
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function tempClasses(temp, active) {
   if (!active) return 'bg-white text-uchb-teal/60 border border-uchb-teal/20'
   if (temp === 'Hot') return 'bg-uchb-gold text-uchb-teal border border-uchb-gold'
@@ -498,32 +645,7 @@ export default function LeadDetail() {
       </header>
 
       <main className="space-y-4 px-4 py-6 pb-10">
-        <section className="space-y-2 rounded-2xl bg-white p-4 shadow-sm">
-          {lead.phone && (
-            <a href={`tel:${lead.phone}`} className="block text-uchb-teal underline">
-              {fmtPhone(lead.phone)}
-            </a>
-          )}
-          {lead.property_address && (
-            <a
-              href={`https://maps.apple.com/?q=${encodeURIComponent(lead.property_address)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="block text-uchb-teal underline"
-            >
-              {lead.property_address}
-            </a>
-          )}
-          {lead.email && <p className="text-uchb-teal/70 text-sm">{lead.email}</p>}
-          {lead.source && (
-            <p className="text-uchb-teal/70 text-sm">Source: {sourcesById[lead.source] || '—'}</p>
-          )}
-          {lead.timeline_to_sell && (
-            <p className="text-uchb-teal/70 text-sm">Timeline: {lead.timeline_to_sell}</p>
-          )}
-          {lead.motivation && <p className="text-uchb-teal/70 text-sm">Motivation: {lead.motivation}</p>}
-          {lead.notes && <p className="text-uchb-teal/70 text-sm">Notes: {lead.notes}</p>}
-        </section>
+        <ContactSection lead={lead} sourcesById={sourcesById} patchLead={patchLead} />
 
         <section className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
           <div>
