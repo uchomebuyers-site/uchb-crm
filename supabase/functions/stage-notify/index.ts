@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
 
     const { data: admins, error: adminsError } = await supabase
       .from('profiles')
-      .select('id, email')
+      .select('id, email, email_notifications_enabled')
       .eq('role', 'admin')
 
     if (adminsError) throw adminsError
@@ -65,7 +65,10 @@ Deno.serve(async (req) => {
       if (insertError) throw insertError
     }
 
-    const adminEmails = (admins ?? []).map((a) => a.email).filter(Boolean)
+    const adminEmails = (admins ?? [])
+      .filter((a) => a.email_notifications_enabled)
+      .map((a) => a.email)
+      .filter(Boolean)
 
     if (adminEmails.length) {
       const resendRes = await fetch('https://api.resend.com/emails', {

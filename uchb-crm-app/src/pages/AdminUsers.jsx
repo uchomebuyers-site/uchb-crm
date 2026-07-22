@@ -41,13 +41,14 @@ function UserEditForm({ profile, onSaved, onCancel }) {
   const { showToast } = useToast()
   const [fullName, setFullName] = useState(profile.full_name || '')
   const [role, setRole] = useState(profile.role)
+  const [emailEnabled, setEmailEnabled] = useState(profile.email_notifications_enabled !== false)
   const [saving, setSaving] = useState(false)
 
   async function handleSave() {
     setSaving(true)
     const { error } = await supabase
       .from('profiles')
-      .update({ full_name: safeStr(fullName).trim() || null, role })
+      .update({ full_name: safeStr(fullName).trim() || null, role, email_notifications_enabled: emailEnabled })
       .eq('id', profile.id)
     setSaving(false)
 
@@ -57,7 +58,7 @@ function UserEditForm({ profile, onSaved, onCancel }) {
     }
 
     showToast('User updated.')
-    onSaved({ full_name: safeStr(fullName).trim() || null, role })
+    onSaved({ full_name: safeStr(fullName).trim() || null, role, email_notifications_enabled: emailEnabled })
   }
 
   return (
@@ -79,6 +80,10 @@ function UserEditForm({ profile, onSaved, onCancel }) {
           </option>
         ))}
       </select>
+      <label className="flex items-center gap-2 py-1 text-sm text-uchb-teal">
+        <input type="checkbox" checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} />
+        Email notifications enabled
+      </label>
       <div className="flex gap-2">
         <button
           type="button"
@@ -120,7 +125,7 @@ export default function AdminUsers() {
     setLoading(true)
     const { data } = await supabase
       .from('profiles')
-      .select('id, email, full_name, role, status')
+      .select('id, email, full_name, role, status, email_notifications_enabled')
       .order('email')
     setProfiles(arr(data))
     setLoading(false)

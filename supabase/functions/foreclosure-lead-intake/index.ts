@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 import { corsHeaders } from '../_shared/cors.ts'
 
 const SOURCE_LABEL = 'Foreclosure Monitor'
+const TAG_LABEL = 'Foreclosure'
 const CRM_URL = 'https://crm.uchomebuyers.com'
 
 type IntakePayload = {
@@ -55,7 +56,7 @@ async function notifyAdmins(
 ) {
   const { data: admins, error: adminsError } = await supabase
     .from('profiles')
-    .select('id, email')
+    .select('id, email, email_notifications_enabled')
     .eq('role', 'admin')
     .eq('status', 'active')
 
@@ -69,6 +70,8 @@ async function notifyAdmins(
   const displayAddress = lead.property_address || 'No address'
   const body = `New foreclosure lead: ${displayName} — ${displayAddress}`
 
+  // In-app notifications go to every active admin regardless of email
+  // preference — muting email doesn't mute the primary in-app channel.
   const notificationRows = activeAdmins.map((admin) => ({
     user_id: admin.id,
     type: 'new_lead',
@@ -84,7 +87,10 @@ async function notifyAdmins(
     }
   }
 
-  const adminEmails = activeAdmins.map((a) => a.email).filter(Boolean)
+  const adminEmails = activeAdmins
+    .filter((a) => a.email_notifications_enabled)
+    .map((a) => a.email)
+    .filter(Boolean)
   if (!adminEmails.length) return
 
   const html = `
@@ -195,6 +201,16 @@ Deno.serve(async (req) => {
 
     if (insertError || !inserted) {
       throw new Error(`Failed to insert lead: ${insertError?.message}`)
+    }
+
+    const { data: tag, error: tagError } = await supabase.from('tags').select('id').eq('label', TAG_LABEL).single()
+    if (tagError || !tag) {
+      console.error(`foreclosure-lead-intake: could not find '${TAG_LABEL}' tag: ${tagError?.message ?? 'not found'}`)
+    } else {
+      const { error: tagLinkError } = await supabase.from('lead_tags').insert({ lead_id: inserted.id, tag_id: tag.id })
+      if (tagLinkError) {
+        console.error(`foreclosure-lead-intake: failed to tag lead ${inserted.id}: ${tagLinkError.message}`)
+      }
     }
 
     await notifyAdmins(supabase, inserted)

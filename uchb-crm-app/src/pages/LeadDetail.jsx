@@ -73,6 +73,7 @@ function OwnershipSection({ lead, patchLead }) {
   const [listingAgentName, setListingAgentName] = useState(lead.listing_agent_name || '')
   const [listingAgentPhone, setListingAgentPhone] = useState(lead.listing_agent_phone || '')
   const [listingAgentBrokerage, setListingAgentBrokerage] = useState(lead.listing_agent_brokerage || '')
+  const [listingUrl, setListingUrl] = useState(lead.listing_url || '')
   const [saving, setSaving] = useState(false)
 
   async function handleSave() {
@@ -84,6 +85,7 @@ function OwnershipSection({ lead, patchLead }) {
         listing_agent_name: safeStr(listingAgentName).trim() || null,
         listing_agent_phone: safeStr(listingAgentPhone).trim() || null,
         listing_agent_brokerage: safeStr(listingAgentBrokerage).trim() || null,
+        listing_url: safeStr(listingUrl).trim() || null,
       },
       'Ownership & listing updated.',
     )
@@ -155,6 +157,12 @@ function OwnershipSection({ lead, patchLead }) {
             value={listingAgentBrokerage}
             onChange={(e) => setListingAgentBrokerage(e.target.value)}
             placeholder="Brokerage"
+          />
+          <input
+            className={inputClasses}
+            value={listingUrl}
+            onChange={(e) => setListingUrl(e.target.value)}
+            placeholder="Listing link (Zillow, Redfin, etc.)"
           />
         </div>
       )}
@@ -369,6 +377,26 @@ function ContactSection({ lead, sourcesById, patchLead }) {
             {lead.property_address}
           </a>
         )}
+        {lead.property_address && (
+          <a
+            href={`https://www.zillow.com/homes/${encodeURIComponent(lead.property_address)}_rb/`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-block text-sm text-uchb-teal/70 underline"
+          >
+            Zillow ↗
+          </a>
+        )}
+        {lead.is_on_market && lead.listing_url && (
+          <a
+            href={lead.listing_url}
+            target="_blank"
+            rel="noreferrer"
+            className="block text-sm text-uchb-teal underline"
+          >
+            View listing ↗
+          </a>
+        )}
         {lead.email && <p className="text-uchb-teal/70 text-sm">{lead.email}</p>}
         {lead.source && <p className="text-uchb-teal/70 text-sm">Source: {sourcesById[lead.source] || '—'}</p>}
         {lead.timeline_to_sell && <p className="text-uchb-teal/70 text-sm">Timeline: {lead.timeline_to_sell}</p>}
@@ -448,6 +476,90 @@ function ContactSection({ lead, sourcesById, patchLead }) {
   )
 }
 
+function TagsSection({ leadId, allTags, leadTagIds, onTagsChange }) {
+  const { showToast } = useToast()
+  const [adding, setAdding] = useState(false)
+
+  const currentTags = allTags.filter((t) => leadTagIds.includes(t.id))
+  const availableTags = allTags.filter((t) => !leadTagIds.includes(t.id))
+
+  async function removeTag(tagId) {
+    const previous = leadTagIds
+    onTagsChange(leadTagIds.filter((id) => id !== tagId))
+
+    const { error } = await supabase.from('lead_tags').delete().eq('lead_id', leadId).eq('tag_id', tagId)
+    if (error) {
+      onTagsChange(previous)
+      showToast('Could not remove tag.', 'error')
+    }
+  }
+
+  async function addTag(tagId) {
+    if (!tagId) return
+    setAdding(false)
+    const previous = leadTagIds
+    onTagsChange([...leadTagIds, tagId])
+
+    const { error } = await supabase.from('lead_tags').insert({ lead_id: leadId, tag_id: tagId })
+    if (error) {
+      onTagsChange(previous)
+      showToast('Could not add tag.', 'error')
+    }
+  }
+
+  return (
+    <section className="rounded-2xl bg-white p-4 shadow-sm">
+      <p className="mb-2 text-sm font-medium text-uchb-teal">Tags</p>
+      <div className="flex flex-wrap items-center gap-2">
+        {currentTags.map((t) => (
+          <span
+            key={t.id}
+            className="flex items-center gap-1.5 rounded-full bg-uchb-teal/10 px-3 py-1 text-xs font-medium text-uchb-teal"
+          >
+            {t.label}
+            <button
+              type="button"
+              onClick={() => removeTag(t.id)}
+              aria-label={`Remove ${t.label} tag`}
+              className="text-uchb-teal/50"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {currentTags.length === 0 && !adding && <span className="text-sm text-uchb-teal/40">No tags yet</span>}
+        {availableTags.length > 0 &&
+          (adding ? (
+            <select
+              autoFocus
+              defaultValue=""
+              onChange={(e) => addTag(e.target.value)}
+              onBlur={() => setAdding(false)}
+              className="rounded-full border border-uchb-teal/20 px-2 py-1 text-xs text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold"
+            >
+              <option value="" disabled>
+                Add tag…
+              </option>
+              {availableTags.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="rounded-full border border-dashed border-uchb-teal/30 px-3 py-1 text-xs font-medium text-uchb-teal/60"
+            >
+              + Add tag
+            </button>
+          ))}
+      </div>
+    </section>
+  )
+}
+
 function tempClasses(temp, active) {
   if (!active) return 'bg-white text-uchb-teal/60 border border-uchb-teal/20'
   if (temp === 'Hot') return 'bg-uchb-gold text-uchb-teal border border-uchb-gold'
@@ -482,6 +594,8 @@ export default function LeadDetail() {
   const [activities, setActivities] = useState([])
   const [authorsById, setAuthorsById] = useState({})
   const [admins, setAdmins] = useState([])
+  const [allTags, setAllTags] = useState([])
+  const [leadTagIds, setLeadTagIds] = useState([])
   const [loading, setLoading] = useState(true)
 
   const [activityType, setActivityType] = useState('call')
@@ -493,12 +607,14 @@ export default function LeadDetail() {
 
     async function load() {
       setLoading(true)
-      const [leadRes, stagesRes, sourcesRes, activitiesRes, profilesRes] = await Promise.all([
+      const [leadRes, stagesRes, sourcesRes, activitiesRes, profilesRes, tagsRes, leadTagsRes] = await Promise.all([
         supabase.from('leads').select('*').eq('id', id).single(),
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
         supabase.from('sources').select('id, label'),
         supabase.from('lead_activity').select('*').eq('lead_id', id).order('created_at', { ascending: false }),
         supabase.from('profiles').select('id, full_name, email, role'),
+        supabase.from('tags').select('id, label').order('label'),
+        supabase.from('lead_tags').select('tag_id').eq('lead_id', id),
       ])
 
       if (!active) return
@@ -516,6 +632,8 @@ export default function LeadDetail() {
       setAdmins(arr(profilesRes.data).filter((p) => p.role === 'admin' || p.role === 'member'))
 
       setActivities(arr(activitiesRes.data))
+      setAllTags(arr(tagsRes.data))
+      setLeadTagIds(arr(leadTagsRes.data).map((r) => r.tag_id))
       setLoading(false)
     }
 
@@ -646,6 +764,8 @@ export default function LeadDetail() {
 
       <main className="space-y-4 px-4 py-6 pb-10">
         <ContactSection lead={lead} sourcesById={sourcesById} patchLead={patchLead} />
+
+        <TagsSection leadId={id} allTags={allTags} leadTagIds={leadTagIds} onTagsChange={setLeadTagIds} />
 
         <section className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
           <div>

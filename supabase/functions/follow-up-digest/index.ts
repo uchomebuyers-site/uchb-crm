@@ -66,12 +66,15 @@ Deno.serve(async (req) => {
 
     const { data: admins, error: adminsError } = await supabase
       .from('profiles')
-      .select('email')
+      .select('email, email_notifications_enabled')
       .eq('role', 'admin')
 
     if (adminsError) throw adminsError
 
-    const adminEmails = (admins ?? []).map((a) => a.email).filter(Boolean)
+    const adminEmails = (admins ?? [])
+      .filter((a) => a.email_notifications_enabled)
+      .map((a) => a.email)
+      .filter(Boolean)
 
     if (adminEmails.length === 0) {
       return new Response(JSON.stringify({ sent: false, reason: 'no admin emails on file' }), {

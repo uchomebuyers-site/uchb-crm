@@ -110,7 +110,7 @@ async function notifyAdmins(
 ) {
   const { data: admins, error: adminsError } = await supabase
     .from('profiles')
-    .select('id, email')
+    .select('id, email, email_notifications_enabled')
     .eq('role', 'admin')
     .eq('status', 'active')
 
@@ -124,6 +124,8 @@ async function notifyAdmins(
   const displayAddress = lead.property_address || 'No address'
   const body = `New Facebook lead: ${displayName} — ${displayAddress}`
 
+  // In-app notifications go to every active admin regardless of email
+  // preference — muting email doesn't mute the primary in-app channel.
   const notificationRows = activeAdmins.map((admin) => ({
     user_id: admin.id,
     type: 'new_lead',
@@ -139,7 +141,10 @@ async function notifyAdmins(
     }
   }
 
-  const adminEmails = activeAdmins.map((a) => a.email).filter(Boolean)
+  const adminEmails = activeAdmins
+    .filter((a) => a.email_notifications_enabled)
+    .map((a) => a.email)
+    .filter(Boolean)
   if (!adminEmails.length) return
 
   const html = `

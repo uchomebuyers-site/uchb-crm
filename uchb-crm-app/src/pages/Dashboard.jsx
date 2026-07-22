@@ -192,6 +192,42 @@ function SetPasswordForm() {
   )
 }
 
+function EmailNotificationsToggle() {
+  const { profile, session } = useAuth()
+  const { showToast } = useToast()
+  const [enabled, setEnabled] = useState(profile?.email_notifications_enabled !== false)
+  const [saving, setSaving] = useState(false)
+
+  async function toggle() {
+    const next = !enabled
+    const previous = enabled
+    setEnabled(next)
+    setSaving(true)
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ email_notifications_enabled: next })
+      .eq('id', session?.user?.id)
+
+    setSaving(false)
+
+    if (error) {
+      setEnabled(previous)
+      showToast('Could not update setting.', 'error')
+      return
+    }
+
+    showToast(next ? 'Email notifications enabled.' : 'Email notifications muted.')
+  }
+
+  return (
+    <label className="flex w-full max-w-xs items-center justify-between gap-3 rounded-2xl bg-white p-4 text-sm text-uchb-teal shadow-sm">
+      <span>Email notifications</span>
+      <input type="checkbox" checked={enabled} disabled={saving} onChange={toggle} />
+    </label>
+  )
+}
+
 export default function Dashboard() {
   const { profile, session } = useAuth()
   const displayName = profile?.full_name || profile?.email || session?.user?.email
@@ -312,6 +348,8 @@ export default function Dashboard() {
 
         <div className="flex flex-col items-center gap-3 pt-2 text-center">
           <p className="text-uchb-teal/70 text-sm">Signed in as {displayName}</p>
+
+          <EmailNotificationsToggle />
 
           <SetPasswordForm />
 
