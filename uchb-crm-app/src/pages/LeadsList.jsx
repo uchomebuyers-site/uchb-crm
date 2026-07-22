@@ -384,6 +384,23 @@ export default function LeadsList() {
     setSelectedIds(new Set())
   }
 
+  async function bulkArchive() {
+    const ids = [...selectedIds]
+    const { error } = await supabase
+      .from('leads')
+      .update({ archived_at: new Date().toISOString() })
+      .in('id', ids)
+
+    if (error) {
+      showToast('Could not archive selected leads.', 'error')
+      return
+    }
+
+    setLeads((prev) => prev.filter((l) => !ids.includes(l.id)))
+    showToast(`Archived ${ids.length} lead(s).`)
+    setSelectedIds(new Set())
+  }
+
   const allVisibleSelected = visibleLeads.length > 0 && visibleLeads.every((l) => selectedIds.has(l.id))
 
   return (
@@ -465,6 +482,13 @@ export default function LeadsList() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={bulkArchive}
+              className="rounded-lg bg-red-600/20 px-3 py-1.5 text-sm font-medium text-red-100"
+            >
+              Archive
+            </button>
             <button
               type="button"
               onClick={() => setSelectedIds(new Set())}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase, fmtCurrency, fmtDate, fmtPhone } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
@@ -560,6 +560,73 @@ function TagsSection({ leadId, allTags, leadTagIds, onTagsChange }) {
   )
 }
 
+function ArchiveSection({ leadId, authorId, navigate }) {
+  const { showToast } = useToast()
+  const [confirming, setConfirming] = useState(false)
+  const [archiving, setArchiving] = useState(false)
+
+  async function handleArchive() {
+    setArchiving(true)
+    const { error } = await supabase
+      .from('leads')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', leadId)
+
+    if (error) {
+      setArchiving(false)
+      showToast('Could not archive lead.', 'error')
+      return
+    }
+
+    await supabase.from('lead_activity').insert({
+      lead_id: leadId,
+      author_id: authorId,
+      type: 'note',
+      body: 'Lead archived.',
+    })
+
+    showToast('Lead archived.')
+    navigate('/leads')
+  }
+
+  return (
+    <section className="rounded-2xl bg-white p-4 shadow-sm">
+      {!confirming ? (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="w-full rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600"
+        >
+          Archive lead
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-center text-sm text-uchb-teal/70">
+            Archive this lead? It'll be hidden from lists but not deleted.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleArchive}
+              disabled={archiving}
+              className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {archiving ? 'Archiving…' : 'Yes, archive'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="flex-1 rounded-xl border border-uchb-teal/20 py-2.5 text-sm font-medium text-uchb-teal"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function tempClasses(temp, active) {
   if (!active) return 'bg-white text-uchb-teal/60 border border-uchb-teal/20'
   if (temp === 'Hot') return 'bg-uchb-gold text-uchb-teal border border-uchb-gold'
@@ -585,6 +652,7 @@ function notifyIfHotOrUnderContract(previousLead, fields, stagesList) {
 
 export default function LeadDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { session } = useAuth()
   const { showToast } = useToast()
 
@@ -897,6 +965,7 @@ export default function LeadDetail() {
 
         <OwnershipSection lead={lead} patchLead={patchLead} />
         <UnderwritingSection lead={lead} patchLead={patchLead} />
+        <ArchiveSection leadId={id} authorId={session?.user?.id} navigate={navigate} />
       </main>
     </div>
   )
