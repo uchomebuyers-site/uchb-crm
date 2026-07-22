@@ -210,7 +210,8 @@ export default function Dashboard() {
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
         supabase
           .from('leads')
-          .select('id, name, property_address, temperature, stage, assigned_to, next_follow_up, created_at'),
+          .select('id, name, property_address, temperature, stage, assigned_to, next_follow_up, created_at')
+          .is('archived_at', null),
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
         supabase.from('lead_activity').select('lead_id, created_at').order('created_at', { ascending: false }),
       ])

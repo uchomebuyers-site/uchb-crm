@@ -158,6 +158,7 @@ export default function FollowUps() {
         supabase
           .from('leads')
           .select('id, name, phone, property_address, temperature, next_follow_up, stage, assigned_to')
+          .is('archived_at', null)
           .lte('next_follow_up', today)
           .order('next_follow_up', { ascending: true }),
         // 'admin' and 'member' are both real team members who can be assigned leads.

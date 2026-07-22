@@ -168,7 +168,8 @@ export default function Pipeline() {
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
         supabase
           .from('leads')
-          .select('id, name, property_address, temperature, stage, assigned_to, created_at'),
+          .select('id, name, property_address, temperature, stage, assigned_to, created_at')
+          .is('archived_at', null),
         supabase.from('lead_status_history').select('lead_id, created_at').order('created_at', { ascending: false }),
         // 'admin' and 'member' are both real team members who can be assigned leads.
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
@@ -202,8 +203,13 @@ export default function Pipeline() {
       .channel('pipeline-leads')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
         if (payload.eventType === 'INSERT') {
+          if (payload.new.archived_at) return
           setLeads((prev) => (prev.some((l) => l.id === payload.new.id) ? prev : [...prev, payload.new]))
         } else if (payload.eventType === 'UPDATE') {
+          if (payload.new.archived_at) {
+            setLeads((prev) => prev.filter((l) => l.id !== payload.new.id))
+            return
+          }
           setLeads((prev) => prev.map((l) => (l.id === payload.new.id ? { ...l, ...payload.new } : l)))
         } else if (payload.eventType === 'DELETE') {
           setLeads((prev) => prev.filter((l) => l.id !== payload.old.id))

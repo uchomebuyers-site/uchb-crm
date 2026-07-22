@@ -278,6 +278,7 @@ export default function LeadsList() {
         supabase
           .from('leads')
           .select('id, name, property_address, phone, temperature, stage, assigned_to, created_at')
+          .is('archived_at', null)
           .order('created_at', { ascending: false }),
         // 'admin' and 'member' are both real team members who can be assigned leads.
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
