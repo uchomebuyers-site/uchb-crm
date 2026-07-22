@@ -4,6 +4,7 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 // developers.facebook.com/docs/graph-api/changelog/versions/ (v25.0 current
 // as of Feb 2026). Bump here once Meta advances past it.
 const GRAPH_API_VERSION = 'v25.0'
+const CRM_URL = 'https://crm.uchomebuyers.com'
 
 type FieldDatum = { name: string; values?: string[] }
 
@@ -144,6 +145,7 @@ async function notifyAdmins(
   const html = `
     <p>New Facebook lead just came in — <strong>${displayName}</strong>, ${displayAddress}. Call fast.</p>
     ${lead.phone ? `<p>Phone: ${lead.phone}</p>` : ''}
+    <p><a href="${CRM_URL}/#/leads/${lead.id}">View lead in CRM →</a></p>
   `
 
   const resendRes = await fetch('https://api.resend.com/emails', {

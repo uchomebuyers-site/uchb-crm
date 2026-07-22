@@ -3,6 +3,8 @@ import { corsHeaders } from '../_shared/cors.ts'
 
 type NotifyType = 'hot' | 'under_contract'
 
+const CRM_URL = 'https://crm.uchomebuyers.com'
+
 const MESSAGES: Record<NotifyType, (name: string, address: string) => string> = {
   hot: (name, address) => `🔥 ${name} — ${address} just turned Hot`,
   under_contract: (name, address) => `${name} — ${address} is now Under Contract`,
@@ -76,7 +78,7 @@ Deno.serve(async (req) => {
           from: Deno.env.get('RESEND_FROM_EMAIL') ?? 'UCHB CRM <onboarding@resend.dev>',
           to: adminEmails,
           subject: SUBJECTS[type as NotifyType],
-          html: `<p>${message}</p>`,
+          html: `<p>${message}</p><p><a href="${CRM_URL}/#/leads/${lead.id}">View lead in CRM →</a></p>`,
         }),
       })
 

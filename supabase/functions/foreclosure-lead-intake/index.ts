@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 import { corsHeaders } from '../_shared/cors.ts'
 
 const SOURCE_LABEL = 'Foreclosure Monitor'
+const CRM_URL = 'https://crm.uchomebuyers.com'
 
 type IntakePayload = {
   name?: string
@@ -89,6 +90,7 @@ async function notifyAdmins(
   const html = `
     <p>New foreclosure lead just came in — <strong>${displayName}</strong>, ${displayAddress}.</p>
     ${lead.phone ? `<p>Phone: ${lead.phone}</p>` : ''}
+    <p><a href="${CRM_URL}/#/leads/${lead.id}">View lead in CRM →</a></p>
   `
 
   const resendRes = await fetch('https://api.resend.com/emails', {

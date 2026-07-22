@@ -28,6 +28,8 @@ function escapeHtml(str: string): string {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+const CRM_URL = 'https://crm.uchomebuyers.com'
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -80,7 +82,7 @@ Deno.serve(async (req) => {
     const listHtml = dueLeads
       .map(
         (l) =>
-          `<li><strong>${escapeHtml(l.name || 'Unnamed lead')}</strong> — ${escapeHtml(
+          `<li><a href="${CRM_URL}/#/leads/${l.id}"><strong>${escapeHtml(l.name || 'Unnamed lead')}</strong></a> — ${escapeHtml(
             l.property_address || 'No address',
           )} (due ${fmtDate(l.next_follow_up)})</li>`,
       )
