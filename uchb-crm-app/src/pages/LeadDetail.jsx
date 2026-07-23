@@ -374,7 +374,7 @@ function ContactSection({ lead, sourcesById, sources, patchLead }) {
         )}
         {lead.property_address && (
           <a
-            href={`https://maps.apple.com/?q=${encodeURIComponent(lead.property_address)}`}
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lead.property_address)}`}
             target="_blank"
             rel="noreferrer"
             className="block text-uchb-teal underline"
