@@ -721,8 +721,24 @@ function ResearchSection({ leadId, enrichments, onPulled, authorsById }) {
     const { data, error } = await supabase.functions.invoke('lead-enrichment', { body: { action: type, leadId } })
     setPulling(null)
 
-    if (error || data?.error) {
-      showToast(data?.error || error?.message || 'Lookup failed.', 'error')
+    if (error) {
+      // supabase-js's error.message is always the generic "Edge Function
+      // returned a non-2xx status code" — the actual reason we send back
+      // (e.g. "Could not parse address...") lives in the response body,
+      // reachable via error.context, not error.message.
+      let message = error.message
+      try {
+        const body = await error.context?.json()
+        if (body?.error) message = body.error
+      } catch {
+        // context wasn't JSON — stick with the generic message.
+      }
+      showToast(message || 'Lookup failed.', 'error')
+      return
+    }
+
+    if (data?.error) {
+      showToast(data.error, 'error')
       return
     }
 
