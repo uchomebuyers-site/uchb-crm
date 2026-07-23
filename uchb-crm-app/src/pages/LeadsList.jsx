@@ -9,6 +9,7 @@ import OwnerChip from '../components/OwnerChip'
 import OwnerFilter from '../components/OwnerFilter'
 import TagFilter from '../components/TagFilter'
 import TagChips from '../components/TagChips'
+import DirectionFilter from '../components/DirectionFilter'
 
 function safeStr(v) {
   return typeof v === 'string' ? v : ''
@@ -35,6 +36,7 @@ const COLUMNS = [
   { key: 'stage', label: 'Stage' },
   { key: 'temperature', label: 'Temp' },
   { key: 'tags', label: 'Tags' },
+  { key: 'source', label: 'Source' },
   { key: 'owner', label: 'Owner' },
   { key: 'created_at', label: 'Created' },
 ]
@@ -58,7 +60,7 @@ function compareLeads(a, b, field, direction, stageSortOrder, adminsById) {
   return direction === 'asc' ? result : -result
 }
 
-function renderCell(lead, key, stagesById, adminsById, tagsByLead) {
+function renderCell(lead, key, stagesById, adminsById, tagsByLead, sourcesById) {
   switch (key) {
     case 'name':
       return safeStr(lead.name) || 'Unnamed lead'
@@ -80,6 +82,8 @@ function renderCell(lead, key, stagesById, adminsById, tagsByLead) {
       ) : null
     case 'tags':
       return <TagChips tags={tagsByLead[lead.id]} />
+    case 'source':
+      return sourcesById[lead.source]?.label || '—'
     case 'owner':
       return adminsById[lead.assigned_to] || '—'
     case 'created_at':
@@ -95,8 +99,8 @@ function toCsvValue(value) {
   return str
 }
 
-function exportCsv(leads, stagesById, adminsById, tagsByLead) {
-  const header = ['Name', 'Phone', 'Address', 'Stage', 'Temperature', 'Tags', 'Owner', 'Created']
+function exportCsv(leads, stagesById, adminsById, tagsByLead, sourcesById) {
+  const header = ['Name', 'Phone', 'Address', 'Stage', 'Temperature', 'Tags', 'Source', 'Direction', 'Owner', 'Created']
   const rows = leads.map((l) => [
     l.name || '',
     l.phone || '',
@@ -104,6 +108,8 @@ function exportCsv(leads, stagesById, adminsById, tagsByLead) {
     stagesById[l.stage] || '',
     l.temperature || '',
     (tagsByLead[l.id] || []).map((t) => t.label).join('; '),
+    sourcesById[l.source]?.label || '',
+    sourcesById[l.source]?.direction || '',
     adminsById[l.assigned_to] || '',
     l.created_at ? fmtDate(l.created_at) : '',
   ])
@@ -274,8 +280,11 @@ export default function LeadsList() {
   const [admins, setAdmins] = useState([])
   const [tags, setTags] = useState([])
   const [tagsByLead, setTagsByLead] = useState({})
+  const [sources, setSources] = useState([])
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [tagFilter, setTagFilter] = useState(new Set())
+  const [directionFilter, setDirectionFilter] = useState('all')
+  const [sourceFilter, setSourceFilter] = useState(new Set())
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState({ field: 'created_at', direction: 'desc' })
   const [loading, setLoading] = useState(true)
@@ -287,17 +296,18 @@ export default function LeadsList() {
     let active = true
 
     async function load() {
-      const [stagesRes, leadsRes, adminsRes, tagsRes, leadTagsRes] = await Promise.all([
+      const [stagesRes, leadsRes, adminsRes, tagsRes, leadTagsRes, sourcesRes] = await Promise.all([
         supabase.from('stages').select('id, label, sort_order').order('sort_order'),
         supabase
           .from('leads')
-          .select('id, name, property_address, phone, temperature, stage, assigned_to, created_at')
+          .select('id, name, property_address, phone, temperature, stage, assigned_to, source, created_at')
           .is('archived_at', null)
           .order('created_at', { ascending: false }),
         // 'admin' and 'member' are both real team members who can be assigned leads.
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
         supabase.from('tags').select('id, label').order('label'),
         supabase.from('lead_tags').select('lead_id, tag_id'),
+        supabase.from('sources').select('id, label, direction').order('label'),
       ])
 
       if (!active) return
@@ -306,6 +316,7 @@ export default function LeadsList() {
       setLeads(arr(leadsRes.data))
       setAdmins(arr(adminsRes.data))
       setTags(arr(tagsRes.data))
+      setSources(arr(sourcesRes.data))
 
       const tagById = {}
       for (const t of arr(tagsRes.data)) tagById[t.id] = t
@@ -358,6 +369,10 @@ export default function LeadsList() {
   const adminsById = {}
   for (const a of admins) adminsById[a.id] = a.full_name || a.email
 
+  const sourcesById = {}
+  for (const s of sources) sourcesById[s.id] = s
+  const sourcesForDirection = sources.filter((s) => directionFilter === 'all' || s.direction === directionFilter)
+
   const searchTerm = search.trim().toLowerCase()
   const filteredLeads = leads.filter((l) => {
     if (ownerFilter !== 'all' && l.assigned_to !== ownerFilter) return false
@@ -365,6 +380,8 @@ export default function LeadsList() {
       const leadTagIds = (tagsByLead[l.id] || []).map((t) => t.id)
       if (!leadTagIds.some((id) => tagFilter.has(id))) return false
     }
+    if (directionFilter !== 'all' && sourcesById[l.source]?.direction !== directionFilter) return false
+    if (sourceFilter.size > 0 && !sourceFilter.has(l.source)) return false
     if (!searchTerm) return true
     return (
       safeStr(l.name).toLowerCase().includes(searchTerm) ||
@@ -379,12 +396,20 @@ export default function LeadsList() {
     [filteredLeads, sort, stages, admins],
   )
 
-  const filtersActive = ownerFilter !== 'all' || tagFilter.size > 0 || searchTerm !== ''
+  const filtersActive =
+    ownerFilter !== 'all' || tagFilter.size > 0 || directionFilter !== 'all' || sourceFilter.size > 0 || searchTerm !== ''
 
   function clearFilters() {
     setOwnerFilter('all')
     setTagFilter(new Set())
+    setDirectionFilter('all')
+    setSourceFilter(new Set())
     setSearch('')
+  }
+
+  function changeDirection(next) {
+    setDirectionFilter(next)
+    setSourceFilter(new Set())
   }
 
   const displayColumns = COLUMNS.filter((c) => visibleColumns.includes(c.key))
@@ -469,7 +494,7 @@ export default function LeadsList() {
             <ColumnsMenu visibleColumns={visibleColumns} onToggle={toggleColumn} />
             <button
               type="button"
-              onClick={() => exportCsv(visibleLeads, stagesById, adminsById, tagsByLead)}
+              onClick={() => exportCsv(visibleLeads, stagesById, adminsById, tagsByLead, sourcesById)}
               disabled={visibleLeads.length === 0}
               className="rounded-xl border border-uchb-teal/20 bg-white px-4 py-2.5 text-sm font-medium text-uchb-teal disabled:opacity-40"
             >
@@ -486,8 +511,17 @@ export default function LeadsList() {
         </div>
 
         {!loading && tags.length > 0 && (
-          <div className="mb-4">
+          <div className="mb-3">
             <TagFilter tags={tags} value={tagFilter} onChange={setTagFilter} />
+          </div>
+        )}
+
+        {!loading && sources.length > 0 && (
+          <div className="mb-4 space-y-2">
+            <DirectionFilter value={directionFilter} onChange={changeDirection} />
+            {directionFilter !== 'all' && sourcesForDirection.length > 0 && (
+              <TagFilter tags={sourcesForDirection} value={sourceFilter} onChange={setSourceFilter} />
+            )}
           </div>
         )}
 
@@ -618,7 +652,7 @@ export default function LeadsList() {
                           key={col.key}
                           className={`px-4 py-3 ${col.key === 'name' ? 'font-medium text-uchb-teal' : 'text-uchb-teal/70'}`}
                         >
-                          {renderCell(lead, col.key, stagesById, adminsById, tagsByLead)}
+                          {renderCell(lead, col.key, stagesById, adminsById, tagsByLead, sourcesById)}
                         </td>
                       ))}
                     </tr>

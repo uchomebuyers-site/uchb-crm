@@ -17,6 +17,7 @@ import OwnerChip from '../components/OwnerChip'
 import OwnerFilter from '../components/OwnerFilter'
 import TagFilter from '../components/TagFilter'
 import TagChips from '../components/TagChips'
+import DirectionFilter from '../components/DirectionFilter'
 
 function safeStr(v) {
   return typeof v === 'string' ? v : ''
@@ -157,8 +158,11 @@ export default function Pipeline() {
   const [admins, setAdmins] = useState([])
   const [tags, setTags] = useState([])
   const [tagsByLead, setTagsByLead] = useState({})
+  const [sources, setSources] = useState([])
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [tagFilter, setTagFilter] = useState(new Set())
+  const [directionFilter, setDirectionFilter] = useState('all')
+  const [sourceFilter, setSourceFilter] = useState(new Set())
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeId, setActiveId] = useState(null)
@@ -176,17 +180,18 @@ export default function Pipeline() {
     let active = true
 
     async function load() {
-      const [stagesRes, leadsRes, historyRes, adminsRes, tagsRes, leadTagsRes] = await Promise.all([
+      const [stagesRes, leadsRes, historyRes, adminsRes, tagsRes, leadTagsRes, sourcesRes] = await Promise.all([
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
         supabase
           .from('leads')
-          .select('id, name, property_address, phone, temperature, stage, assigned_to, created_at')
+          .select('id, name, property_address, phone, temperature, stage, assigned_to, source, created_at')
           .is('archived_at', null),
         supabase.from('lead_status_history').select('lead_id, created_at').order('created_at', { ascending: false }),
         // 'admin' and 'member' are both real team members who can be assigned leads.
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
         supabase.from('tags').select('id, label').order('label'),
         supabase.from('lead_tags').select('lead_id, tag_id'),
+        supabase.from('sources').select('id, label, direction').order('label'),
       ])
 
       if (!active) return
@@ -195,6 +200,7 @@ export default function Pipeline() {
       setLeads(arr(leadsRes.data))
       setAdmins(arr(adminsRes.data))
       setTags(arr(tagsRes.data))
+      setSources(arr(sourcesRes.data))
 
       const tagById = {}
       for (const t of arr(tagsRes.data)) tagById[t.id] = t
@@ -332,6 +338,10 @@ export default function Pipeline() {
   const adminsById = {}
   for (const a of admins) adminsById[a.id] = a.full_name || a.email
 
+  const sourcesById = {}
+  for (const s of sources) sourcesById[s.id] = s
+  const sourcesForDirection = sources.filter((s) => directionFilter === 'all' || s.direction === directionFilter)
+
   const searchTerm = search.trim().toLowerCase()
   const visibleLeads = leads.filter((l) => {
     if (ownerFilter !== 'all' && l.assigned_to !== ownerFilter) return false
@@ -339,6 +349,8 @@ export default function Pipeline() {
       const leadTagIds = (tagsByLead[l.id] || []).map((t) => t.id)
       if (!leadTagIds.some((id) => tagFilter.has(id))) return false
     }
+    if (directionFilter !== 'all' && sourcesById[l.source]?.direction !== directionFilter) return false
+    if (sourceFilter.size > 0 && !sourceFilter.has(l.source)) return false
     if (!searchTerm) return true
     return (
       safeStr(l.name).toLowerCase().includes(searchTerm) ||
@@ -347,12 +359,20 @@ export default function Pipeline() {
     )
   })
 
-  const filtersActive = ownerFilter !== 'all' || tagFilter.size > 0 || searchTerm !== ''
+  const filtersActive =
+    ownerFilter !== 'all' || tagFilter.size > 0 || directionFilter !== 'all' || sourceFilter.size > 0 || searchTerm !== ''
 
   function clearFilters() {
     setOwnerFilter('all')
     setTagFilter(new Set())
+    setDirectionFilter('all')
+    setSourceFilter(new Set())
     setSearch('')
+  }
+
+  function changeDirection(next) {
+    setDirectionFilter(next)
+    setSourceFilter(new Set())
   }
 
   return (
@@ -378,6 +398,10 @@ export default function Pipeline() {
             </div>
             {admins.length > 0 && <OwnerFilter admins={admins} value={ownerFilter} onChange={setOwnerFilter} />}
             {tags.length > 0 && <TagFilter tags={tags} value={tagFilter} onChange={setTagFilter} />}
+            {sources.length > 0 && <DirectionFilter value={directionFilter} onChange={changeDirection} />}
+            {directionFilter !== 'all' && sourcesForDirection.length > 0 && (
+              <TagFilter tags={sourcesForDirection} value={sourceFilter} onChange={setSourceFilter} />
+            )}
           </div>
         )}
 

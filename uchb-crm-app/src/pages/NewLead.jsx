@@ -48,7 +48,7 @@ export default function NewLead() {
     let active = true
     supabase
       .from('sources')
-      .select('id, label')
+      .select('id, label, direction')
       .eq('is_active', true)
       .order('label')
       .then(({ data }) => {
@@ -262,11 +262,24 @@ export default function NewLead() {
               onChange={(e) => setSourceId(e.target.value)}
             >
               <option value="">Select a source</option>
-              {sources.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
+              <optgroup label="Inbound">
+                {sources
+                  .filter((s) => s.direction === 'inbound')
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Outbound">
+                {sources
+                  .filter((s) => s.direction === 'outbound')
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+              </optgroup>
             </select>
           </div>
 

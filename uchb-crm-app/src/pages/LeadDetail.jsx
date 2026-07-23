@@ -309,7 +309,7 @@ function UnderwritingSection({ lead, patchLead }) {
   )
 }
 
-function ContactSection({ lead, sourcesById, patchLead }) {
+function ContactSection({ lead, sourcesById, sources, patchLead }) {
   const { showToast } = useToast()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(lead.name || '')
@@ -319,6 +319,7 @@ function ContactSection({ lead, sourcesById, patchLead }) {
   const [timelineToSell, setTimelineToSell] = useState(lead.timeline_to_sell || '')
   const [motivation, setMotivation] = useState(lead.motivation || '')
   const [notes, setNotes] = useState(lead.notes || '')
+  const [sourceId, setSourceId] = useState(lead.source || '')
   const [saving, setSaving] = useState(false)
 
   function startEditing() {
@@ -329,6 +330,7 @@ function ContactSection({ lead, sourcesById, patchLead }) {
     setTimelineToSell(lead.timeline_to_sell || '')
     setMotivation(lead.motivation || '')
     setNotes(lead.notes || '')
+    setSourceId(lead.source || '')
     setEditing(true)
   }
 
@@ -352,6 +354,7 @@ function ContactSection({ lead, sourcesById, patchLead }) {
         timeline_to_sell: safeStr(timelineToSell).trim() || null,
         motivation: safeStr(motivation).trim() || null,
         notes: safeStr(notes).trim() || null,
+        source: sourceId || null,
       },
       'Contact info updated.',
     )
@@ -398,7 +401,16 @@ function ContactSection({ lead, sourcesById, patchLead }) {
           </a>
         )}
         {lead.email && <p className="text-uchb-teal/70 text-sm">{lead.email}</p>}
-        {lead.source && <p className="text-uchb-teal/70 text-sm">Source: {sourcesById[lead.source] || '—'}</p>}
+        {lead.source && (
+          <p className="text-uchb-teal/70 text-sm">
+            Source: {sourcesById[lead.source]?.label || '—'}
+            {sourcesById[lead.source]?.direction && (
+              <span className="ml-1.5 rounded-full bg-uchb-teal/5 px-2 py-0.5 text-[11px] font-medium capitalize text-uchb-teal/60">
+                {sourcesById[lead.source].direction}
+              </span>
+            )}
+          </p>
+        )}
         {lead.timeline_to_sell && <p className="text-uchb-teal/70 text-sm">Timeline: {lead.timeline_to_sell}</p>}
         {lead.motivation && <p className="text-uchb-teal/70 text-sm">Motivation: {lead.motivation}</p>}
         {lead.notes && <p className="text-uchb-teal/70 text-sm">Notes: {lead.notes}</p>}
@@ -455,6 +467,27 @@ function ContactSection({ lead, sourcesById, patchLead }) {
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes"
       />
+      <select className={inputClasses} value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+        <option value="">No source selected</option>
+        <optgroup label="Inbound">
+          {sources
+            .filter((s) => s.direction === 'inbound')
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+        </optgroup>
+        <optgroup label="Outbound">
+          {sources
+            .filter((s) => s.direction === 'outbound')
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+        </optgroup>
+      </select>
       <div className="flex gap-2">
         <button
           type="button"
@@ -632,36 +665,43 @@ function EnrichmentSummary({ type, summary }) {
 
   if (type === 'skip_trace') {
     return (
-      <div className="space-y-1.5 text-sm text-uchb-teal">
-        {summary.ownerName && <p className="font-medium">{summary.ownerName}</p>}
-        {(summary.phones || []).map((p, i) => (
-          <p key={i} className="flex items-center gap-2">
-            <a href={`tel:${p.number}`} className="underline">
-              {fmtPhone(p.number)}
-            </a>
-            {p.type && <span className="text-xs text-uchb-teal/50">{p.type}</span>}
-            {p.dnc && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">DNC</span>
-            )}
-          </p>
+      <div className="space-y-3 text-sm text-uchb-teal">
+        {(summary.people || []).map((person, i) => (
+          <div key={i} className={i > 0 ? 'border-t border-uchb-teal/10 pt-2' : ''}>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {person.name && <p className="font-medium">{person.name}</p>}
+              {person.deceased && (
+                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                  Deceased
+                </span>
+              )}
+              {person.litigator && (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                  Known TCPA litigator — do not call
+                </span>
+              )}
+            </div>
+            {(person.phones || []).map((p, j) => (
+              <p key={j} className="mt-1 flex items-center gap-2">
+                <a href={`tel:${p.number}`} className="underline">
+                  {fmtPhone(p.number)}
+                </a>
+                {p.type && <span className="text-xs text-uchb-teal/50">{p.type}</span>}
+                {p.dnc && (
+                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">DNC</span>
+                )}
+              </p>
+            ))}
+            {(person.emails || []).map((email, j) => (
+              <p key={j} className="mt-1">
+                <a href={`mailto:${email}`} className="underline">
+                  {email}
+                </a>
+              </p>
+            ))}
+            {person.mailingAddress && <p className="mt-1 text-uchb-teal/60">{person.mailingAddress}</p>}
+          </div>
         ))}
-        {(summary.emails || []).map((e, i) => {
-          const email = typeof e === 'string' ? e : e.email
-          return (
-            <p key={i}>
-              <a href={`mailto:${email}`} className="underline">
-                {email}
-              </a>
-            </p>
-          )
-        })}
-        {summary.mailingAddress && (
-          <p className="text-uchb-teal/60">
-            {[summary.mailingAddress.street, summary.mailingAddress.city, summary.mailingAddress.state, summary.mailingAddress.zip]
-              .filter(Boolean)
-              .join(', ')}
-          </p>
-        )}
       </div>
     )
   }
@@ -835,6 +875,7 @@ export default function LeadDetail() {
   const [lead, setLead] = useState(null)
   const [stages, setStages] = useState([])
   const [sourcesById, setSourcesById] = useState({})
+  const [sources, setSources] = useState([])
   const [activities, setActivities] = useState([])
   const [authorsById, setAuthorsById] = useState({})
   const [admins, setAdmins] = useState([])
@@ -856,7 +897,7 @@ export default function LeadDetail() {
         await Promise.all([
           supabase.from('leads').select('*').eq('id', id).single(),
           supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
-          supabase.from('sources').select('id, label'),
+          supabase.from('sources').select('id, label, direction').order('label'),
           supabase.from('lead_activity').select('*').eq('lead_id', id).order('created_at', { ascending: false }),
           supabase.from('profiles').select('id, full_name, email, role'),
           supabase.from('tags').select('id, label').order('label'),
@@ -874,8 +915,9 @@ export default function LeadDetail() {
       setStages(arr(stagesRes.data))
 
       const srcMap = {}
-      for (const s of arr(sourcesRes.data)) srcMap[s.id] = s.label
+      for (const s of arr(sourcesRes.data)) srcMap[s.id] = s
       setSourcesById(srcMap)
+      setSources(arr(sourcesRes.data))
 
       const authMap = {}
       for (const p of arr(profilesRes.data)) authMap[p.id] = p.full_name || p.email
@@ -1021,7 +1063,7 @@ export default function LeadDetail() {
       </header>
 
       <main className="space-y-4 px-4 py-6 pb-10">
-        <ContactSection lead={lead} sourcesById={sourcesById} patchLead={patchLead} />
+        <ContactSection lead={lead} sourcesById={sourcesById} sources={sources} patchLead={patchLead} />
 
         <TagsSection leadId={id} allTags={allTags} leadTagIds={leadTagIds} onTagsChange={setLeadTagIds} />
 
