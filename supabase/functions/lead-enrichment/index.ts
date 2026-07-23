@@ -142,17 +142,34 @@ Deno.serve(async (req) => {
       }
       const data = await res.json()
 
+      // Real shape (verified against a live hit): name/phones/emails/mailing
+      // address live per-person inside a `persons` array, not top-level —
+      // an address can return more than one match (e.g. prior + current
+      // owner), so we keep all of them rather than assuming persons[0].
       const status = data.hit ? 'success' : 'no_match'
       const summary = data.hit
         ? {
-            ownerName: [data.first_name, data.last_name].filter(Boolean).join(' ') || null,
-            phones: (data.phones ?? []).map((p: Record<string, unknown>) => ({
-              number: p.number,
-              type: p.type,
-              dnc: Boolean(p.dnc),
-            })),
-            emails: data.emails ?? [],
-            mailingAddress: data.mailing_address ?? null,
+            personsCount: data.persons_count ?? (data.persons ?? []).length,
+            people: (data.persons ?? []).map((person: Record<string, unknown>) => {
+              const mailing = person.mailing_address as Record<string, unknown> | undefined
+              return {
+                name: person.full_name ?? ([person.first_name, person.last_name].filter(Boolean).join(' ') || null),
+                deceased: Boolean(person.deceased),
+                litigator: Boolean(person.litigator),
+                phones: ((person.phones as Record<string, unknown>[]) ?? []).map((p) => ({
+                  number: p.number,
+                  type: p.type,
+                  dnc: Boolean(p.dnc),
+                  tcpa: Boolean(p.tcpa),
+                })),
+                emails: ((person.emails as Record<string, unknown>[]) ?? []).map((e) =>
+                  typeof e === 'string' ? e : e.email,
+                ),
+                mailingAddress: mailing
+                  ? [mailing.street, mailing.city, mailing.state, mailing.zip].filter(Boolean).join(', ')
+                  : null,
+              }
+            }),
           }
         : null
       // Tracerfy: 5 credits/hit, free on miss, ~$0.02/credit at standard rates.
