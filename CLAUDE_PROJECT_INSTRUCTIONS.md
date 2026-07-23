@@ -1,7 +1,17 @@
 # UCHB CRM — Claude Project instructions
 
-Paste this into the Project's custom instructions field in claude.ai, after
-enabling the "UCHB CRM" custom connector for this Project.
+Access is via a **local** MCP server, not claude.ai's remote custom
+connector — claude.ai's browser connector flow requires a full OAuth
+handshake that a bare bearer-token URL can't satisfy without a custom
+domain in front of the Supabase function. Claude Desktop's local MCP
+support sidesteps that entirely: it's configured in
+`claude_desktop_config.json` as an `mcpServers` entry named `uchb-crm`,
+running `tools/crm-mcp-bridge.mjs` (a thin stdio↔HTTP relay to the same
+`crm-mcp` Edge Function), authenticated via a per-person token baked into
+that config's `CRM_MCP_URL` env var. Restart Claude Desktop after the
+config changes for it to pick up the server.
+
+Paste the instructions below into the Project's custom instructions field.
 
 ---
 
