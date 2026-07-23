@@ -7,6 +7,8 @@ import Skeleton from '../components/Skeleton'
 import AppHeader from '../components/AppHeader'
 import OwnerChip from '../components/OwnerChip'
 import OwnerFilter from '../components/OwnerFilter'
+import TagFilter from '../components/TagFilter'
+import TagChips from '../components/TagChips'
 
 function safeStr(v) {
   return typeof v === 'string' ? v : ''
@@ -32,6 +34,7 @@ const COLUMNS = [
   { key: 'phone', label: 'Phone' },
   { key: 'stage', label: 'Stage' },
   { key: 'temperature', label: 'Temp' },
+  { key: 'tags', label: 'Tags' },
   { key: 'owner', label: 'Owner' },
   { key: 'created_at', label: 'Created' },
 ]
@@ -55,7 +58,7 @@ function compareLeads(a, b, field, direction, stageSortOrder, adminsById) {
   return direction === 'asc' ? result : -result
 }
 
-function renderCell(lead, key, stagesById, adminsById) {
+function renderCell(lead, key, stagesById, adminsById, tagsByLead) {
   switch (key) {
     case 'name':
       return safeStr(lead.name) || 'Unnamed lead'
@@ -75,6 +78,8 @@ function renderCell(lead, key, stagesById, adminsById) {
           {lead.temperature}
         </span>
       ) : null
+    case 'tags':
+      return <TagChips tags={tagsByLead[lead.id]} />
     case 'owner':
       return adminsById[lead.assigned_to] || '—'
     case 'created_at':
@@ -90,14 +95,15 @@ function toCsvValue(value) {
   return str
 }
 
-function exportCsv(leads, stagesById, adminsById) {
-  const header = ['Name', 'Phone', 'Address', 'Stage', 'Temperature', 'Owner', 'Created']
+function exportCsv(leads, stagesById, adminsById, tagsByLead) {
+  const header = ['Name', 'Phone', 'Address', 'Stage', 'Temperature', 'Tags', 'Owner', 'Created']
   const rows = leads.map((l) => [
     l.name || '',
     l.phone || '',
     l.property_address || '',
     stagesById[l.stage] || '',
     l.temperature || '',
+    (tagsByLead[l.id] || []).map((t) => t.label).join('; '),
     adminsById[l.assigned_to] || '',
     l.created_at ? fmtDate(l.created_at) : '',
   ])
@@ -149,7 +155,7 @@ function ColumnsMenu({ visibleColumns, onToggle }) {
   )
 }
 
-function LeadCard({ lead, stagesById, ownerName }) {
+function LeadCard({ lead, stagesById, ownerName, tags }) {
   const navigate = useNavigate()
   const { session } = useAuth()
   const { showToast } = useToast()
@@ -200,6 +206,11 @@ function LeadCard({ lead, stagesById, ownerName }) {
             {stagesById[lead.stage] || 'New'}
           </span>
         </div>
+        {tags && tags.length > 0 && (
+          <div className="mt-2">
+            <TagChips tags={tags} />
+          </div>
+        )}
       </button>
 
       <div className="mt-3 flex items-center gap-3">
@@ -261,7 +272,10 @@ export default function LeadsList() {
   const [leads, setLeads] = useState([])
   const [stages, setStages] = useState([])
   const [admins, setAdmins] = useState([])
+  const [tags, setTags] = useState([])
+  const [tagsByLead, setTagsByLead] = useState({})
   const [ownerFilter, setOwnerFilter] = useState('all')
+  const [tagFilter, setTagFilter] = useState(new Set())
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState({ field: 'created_at', direction: 'desc' })
   const [loading, setLoading] = useState(true)
@@ -273,7 +287,7 @@ export default function LeadsList() {
     let active = true
 
     async function load() {
-      const [stagesRes, leadsRes, adminsRes] = await Promise.all([
+      const [stagesRes, leadsRes, adminsRes, tagsRes, leadTagsRes] = await Promise.all([
         supabase.from('stages').select('id, label, sort_order').order('sort_order'),
         supabase
           .from('leads')
@@ -282,6 +296,8 @@ export default function LeadsList() {
           .order('created_at', { ascending: false }),
         // 'admin' and 'member' are both real team members who can be assigned leads.
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
+        supabase.from('tags').select('id, label').order('label'),
+        supabase.from('lead_tags').select('lead_id, tag_id'),
       ])
 
       if (!active) return
@@ -289,6 +305,19 @@ export default function LeadsList() {
       setStages(arr(stagesRes.data))
       setLeads(arr(leadsRes.data))
       setAdmins(arr(adminsRes.data))
+      setTags(arr(tagsRes.data))
+
+      const tagById = {}
+      for (const t of arr(tagsRes.data)) tagById[t.id] = t
+      const byLead = {}
+      for (const row of arr(leadTagsRes.data)) {
+        const tag = tagById[row.tag_id]
+        if (!tag) continue
+        if (!byLead[row.lead_id]) byLead[row.lead_id] = []
+        byLead[row.lead_id].push(tag)
+      }
+      setTagsByLead(byLead)
+
       setLoading(false)
     }
 
@@ -332,6 +361,10 @@ export default function LeadsList() {
   const searchTerm = search.trim().toLowerCase()
   const filteredLeads = leads.filter((l) => {
     if (ownerFilter !== 'all' && l.assigned_to !== ownerFilter) return false
+    if (tagFilter.size > 0) {
+      const leadTagIds = (tagsByLead[l.id] || []).map((t) => t.id)
+      if (!leadTagIds.some((id) => tagFilter.has(id))) return false
+    }
     if (!searchTerm) return true
     return (
       safeStr(l.name).toLowerCase().includes(searchTerm) ||
@@ -345,6 +378,14 @@ export default function LeadsList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [filteredLeads, sort, stages, admins],
   )
+
+  const filtersActive = ownerFilter !== 'all' || tagFilter.size > 0 || searchTerm !== ''
+
+  function clearFilters() {
+    setOwnerFilter('all')
+    setTagFilter(new Set())
+    setSearch('')
+  }
 
   const displayColumns = COLUMNS.filter((c) => visibleColumns.includes(c.key))
 
@@ -408,7 +449,7 @@ export default function LeadsList() {
       <AppHeader title="Leads" />
 
       <main className="px-4 py-4 pb-28 lg:pb-10">
-        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center">
             {!loading && admins.length > 0 && <OwnerFilter admins={admins} value={ownerFilter} onChange={setOwnerFilter} />}
             <input
@@ -418,12 +459,17 @@ export default function LeadsList() {
               placeholder="Search name, address, phone…"
               className="w-full rounded-xl border border-uchb-teal/20 bg-white px-4 py-2.5 text-sm text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold lg:max-w-xs"
             />
+            {filtersActive && (
+              <button type="button" onClick={clearFilters} className="text-left text-sm text-uchb-teal/60 underline">
+                Clear filters
+              </button>
+            )}
           </div>
           <div className="hidden gap-2 lg:flex">
             <ColumnsMenu visibleColumns={visibleColumns} onToggle={toggleColumn} />
             <button
               type="button"
-              onClick={() => exportCsv(visibleLeads, stagesById, adminsById)}
+              onClick={() => exportCsv(visibleLeads, stagesById, adminsById, tagsByLead)}
               disabled={visibleLeads.length === 0}
               className="rounded-xl border border-uchb-teal/20 bg-white px-4 py-2.5 text-sm font-medium text-uchb-teal disabled:opacity-40"
             >
@@ -438,6 +484,12 @@ export default function LeadsList() {
             </button>
           </div>
         </div>
+
+        {!loading && tags.length > 0 && (
+          <div className="mb-4">
+            <TagFilter tags={tags} value={tagFilter} onChange={setTagFilter} />
+          </div>
+        )}
 
         {selectedIds.size > 0 && (
           <div className="mb-3 hidden items-center gap-3 rounded-xl bg-uchb-teal px-4 py-2.5 lg:flex">
@@ -566,7 +618,7 @@ export default function LeadsList() {
                           key={col.key}
                           className={`px-4 py-3 ${col.key === 'name' ? 'font-medium text-uchb-teal' : 'text-uchb-teal/70'}`}
                         >
-                          {renderCell(lead, col.key, stagesById, adminsById)}
+                          {renderCell(lead, col.key, stagesById, adminsById, tagsByLead)}
                         </td>
                       ))}
                     </tr>
@@ -579,7 +631,12 @@ export default function LeadsList() {
             <ul className="space-y-3 lg:hidden">
               {visibleLeads.map((lead) => (
                 <li key={lead.id}>
-                  <LeadCard lead={lead} stagesById={stagesById} ownerName={adminsById[lead.assigned_to]} />
+                  <LeadCard
+                    lead={lead}
+                    stagesById={stagesById}
+                    ownerName={adminsById[lead.assigned_to]}
+                    tags={tagsByLead[lead.id]}
+                  />
                 </li>
               ))}
             </ul>

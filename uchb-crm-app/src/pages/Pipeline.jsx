@@ -15,6 +15,8 @@ import AppHeader from '../components/AppHeader'
 import Skeleton from '../components/Skeleton'
 import OwnerChip from '../components/OwnerChip'
 import OwnerFilter from '../components/OwnerFilter'
+import TagFilter from '../components/TagFilter'
+import TagChips from '../components/TagChips'
 
 function safeStr(v) {
   return typeof v === 'string' ? v : ''
@@ -51,7 +53,7 @@ function daysSince(dateStr) {
   return Math.max(0, Math.floor(diff / 86400000))
 }
 
-function CardBody({ lead, daysAgo, ownerName }) {
+function CardBody({ lead, daysAgo, ownerName, tags }) {
   return (
     <>
       <div className="flex items-start justify-between gap-2">
@@ -71,11 +73,16 @@ function CardBody({ lead, daysAgo, ownerName }) {
           </span>
         )}
       </div>
+      {tags && tags.length > 0 && (
+        <div className="mt-1.5">
+          <TagChips tags={tags} max={2} />
+        </div>
+      )}
     </>
   )
 }
 
-function LeadCard({ lead, daysAgo, justDropped, ownerName }) {
+function LeadCard({ lead, daysAgo, justDropped, ownerName, tags }) {
   const navigate = useNavigate()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: lead.id })
 
@@ -88,7 +95,7 @@ function LeadCard({ lead, daysAgo, justDropped, ownerName }) {
         isDragging ? 'opacity-30' : ''
       } ${justDropped ? 'scale-105 shadow-xl' : ''}`}
     >
-      <CardBody lead={lead} daysAgo={daysAgo} ownerName={ownerName} />
+      <CardBody lead={lead} daysAgo={daysAgo} ownerName={ownerName} tags={tags} />
       <button
         type="button"
         aria-label="Open lead"
@@ -111,7 +118,7 @@ function LeadCard({ lead, daysAgo, justDropped, ownerName }) {
   )
 }
 
-function Column({ stage, leads, lastChangeById, justDroppedId, adminsById }) {
+function Column({ stage, leads, lastChangeById, justDroppedId, adminsById, tagsByLead }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
 
   return (
@@ -134,6 +141,7 @@ function Column({ stage, leads, lastChangeById, justDroppedId, adminsById }) {
             daysAgo={daysSince(lastChangeById[lead.id])}
             justDropped={justDroppedId === lead.id}
             ownerName={adminsById[lead.assigned_to]}
+            tags={tagsByLead[lead.id]}
           />
         ))}
         {leads.length === 0 && <p className="px-2 py-4 text-center text-xs text-uchb-teal/40">No leads</p>}
@@ -147,7 +155,11 @@ export default function Pipeline() {
   const [leads, setLeads] = useState([])
   const [lastChangeById, setLastChangeById] = useState({})
   const [admins, setAdmins] = useState([])
+  const [tags, setTags] = useState([])
+  const [tagsByLead, setTagsByLead] = useState({})
   const [ownerFilter, setOwnerFilter] = useState('all')
+  const [tagFilter, setTagFilter] = useState(new Set())
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeId, setActiveId] = useState(null)
   const [justDroppedId, setJustDroppedId] = useState(null)
@@ -164,15 +176,17 @@ export default function Pipeline() {
     let active = true
 
     async function load() {
-      const [stagesRes, leadsRes, historyRes, adminsRes] = await Promise.all([
+      const [stagesRes, leadsRes, historyRes, adminsRes, tagsRes, leadTagsRes] = await Promise.all([
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
         supabase
           .from('leads')
-          .select('id, name, property_address, temperature, stage, assigned_to, created_at')
+          .select('id, name, property_address, phone, temperature, stage, assigned_to, created_at')
           .is('archived_at', null),
         supabase.from('lead_status_history').select('lead_id, created_at').order('created_at', { ascending: false }),
         // 'admin' and 'member' are both real team members who can be assigned leads.
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
+        supabase.from('tags').select('id, label').order('label'),
+        supabase.from('lead_tags').select('lead_id, tag_id'),
       ])
 
       if (!active) return
@@ -180,6 +194,18 @@ export default function Pipeline() {
       setStages(arr(stagesRes.data))
       setLeads(arr(leadsRes.data))
       setAdmins(arr(adminsRes.data))
+      setTags(arr(tagsRes.data))
+
+      const tagById = {}
+      for (const t of arr(tagsRes.data)) tagById[t.id] = t
+      const tagsMap = {}
+      for (const row of arr(leadTagsRes.data)) {
+        const tag = tagById[row.tag_id]
+        if (!tag) continue
+        if (!tagsMap[row.lead_id]) tagsMap[row.lead_id] = []
+        tagsMap[row.lead_id].push(tag)
+      }
+      setTagsByLead(tagsMap)
 
       const changeMap = {}
       for (const row of arr(historyRes.data)) {
@@ -306,16 +332,52 @@ export default function Pipeline() {
   const adminsById = {}
   for (const a of admins) adminsById[a.id] = a.full_name || a.email
 
-  const visibleLeads = ownerFilter === 'all' ? leads : leads.filter((l) => l.assigned_to === ownerFilter)
+  const searchTerm = search.trim().toLowerCase()
+  const visibleLeads = leads.filter((l) => {
+    if (ownerFilter !== 'all' && l.assigned_to !== ownerFilter) return false
+    if (tagFilter.size > 0) {
+      const leadTagIds = (tagsByLead[l.id] || []).map((t) => t.id)
+      if (!leadTagIds.some((id) => tagFilter.has(id))) return false
+    }
+    if (!searchTerm) return true
+    return (
+      safeStr(l.name).toLowerCase().includes(searchTerm) ||
+      safeStr(l.property_address).toLowerCase().includes(searchTerm) ||
+      safeStr(l.phone).toLowerCase().includes(searchTerm)
+    )
+  })
+
+  const filtersActive = ownerFilter !== 'all' || tagFilter.size > 0 || searchTerm !== ''
+
+  function clearFilters() {
+    setOwnerFilter('all')
+    setTagFilter(new Set())
+    setSearch('')
+  }
 
   return (
     <div className="min-h-screen bg-uchb-cream">
       <AppHeader title="Pipeline" />
 
       <main className="px-2 py-4">
-        {!loading && admins.length > 0 && (
-          <div className="mb-3 px-2">
-            <OwnerFilter admins={admins} value={ownerFilter} onChange={setOwnerFilter} />
+        {!loading && (
+          <div className="mb-3 space-y-2 px-2">
+            <div className="flex items-center gap-3">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, address, phone…"
+                className="w-full max-w-xs rounded-xl border border-uchb-teal/20 bg-white px-4 py-2.5 text-sm text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold"
+              />
+              {filtersActive && (
+                <button type="button" onClick={clearFilters} className="text-sm text-uchb-teal/60 underline">
+                  Clear filters
+                </button>
+              )}
+            </div>
+            {admins.length > 0 && <OwnerFilter admins={admins} value={ownerFilter} onChange={setOwnerFilter} />}
+            {tags.length > 0 && <TagFilter tags={tags} value={tagFilter} onChange={setTagFilter} />}
           </div>
         )}
 
@@ -342,6 +404,7 @@ export default function Pipeline() {
                   lastChangeById={lastChangeById}
                   justDroppedId={justDroppedId}
                   adminsById={adminsById}
+                  tagsByLead={tagsByLead}
                 />
               ))}
             </div>
@@ -352,6 +415,7 @@ export default function Pipeline() {
                     lead={activeLead}
                     daysAgo={daysSince(lastChangeById[activeLead.id])}
                     ownerName={adminsById[activeLead.assigned_to]}
+                    tags={tagsByLead[activeLead.id]}
                   />
                 </div>
               ) : null}
