@@ -46,8 +46,8 @@ function ChevronIcon({ expanded }) {
   )
 }
 
-function CollapsibleSection({ title, summary, children }) {
-  const [expanded, setExpanded] = useState(false)
+function CollapsibleSection({ title, summary, defaultExpanded = false, children }) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
 
   return (
     <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
@@ -732,9 +732,15 @@ function ResearchSection({ leadId, enrichments, onPulled, authorsById }) {
   }
 
   const ownerSummary = enrichments.property_lookup?.summary?.owner
+  const pulledCount = Object.keys(enrichments).length
+  const collapsedSummary = ownerSummary
+    ? `Owner: ${ownerSummary}`
+    : pulledCount > 0
+      ? `${pulledCount} of ${ENRICHMENT_TYPES.length} pulled`
+      : null
 
   return (
-    <CollapsibleSection title="Research" summary={ownerSummary ? `Owner: ${ownerSummary}` : null}>
+    <CollapsibleSection title="Research" summary={collapsedSummary} defaultExpanded={pulledCount > 0}>
       <div className="space-y-3">
         {ENRICHMENT_TYPES.map(({ key, label }) => {
           const record = enrichments[key]
