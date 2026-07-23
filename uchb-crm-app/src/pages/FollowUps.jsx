@@ -35,7 +35,7 @@ function todayISODate() {
 
 const ACTIVITY_TYPES = ['call', 'text', 'note', 'offer']
 
-function FollowUpCard({ lead, ownerName }) {
+function FollowUpCard({ lead, ownerName, isForeclosure }) {
   const navigate = useNavigate()
   const { session } = useAuth()
   const { showToast } = useToast()
@@ -75,7 +75,14 @@ function FollowUpCard({ lead, ownerName }) {
     <div className={`rounded-2xl bg-white p-4 shadow-sm ${isOverdue ? 'border-l-4 border-uchb-teal/40' : ''}`}>
       <button type="button" onClick={() => navigate(`/leads/${lead.id}`)} className="block w-full text-left">
         <div className="flex items-start justify-between gap-2">
-          <p className="font-semibold text-uchb-teal">{safeStr(lead.name) || 'Unnamed lead'}</p>
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate font-semibold text-uchb-teal">{safeStr(lead.name) || 'Unnamed lead'}</p>
+            {isForeclosure && (
+              <span className="shrink-0 rounded-full bg-uchb-teal px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-uchb-cream">
+                Foreclosure
+              </span>
+            )}
+          </div>
           <OwnerChip name={ownerName} />
         </div>
         <p className="mt-0.5 text-sm text-uchb-teal/70">{safeStr(lead.property_address) || 'No address'}</p>
@@ -142,9 +149,12 @@ function FollowUpCard({ lead, ownerName }) {
   )
 }
 
+const FORECLOSURE_SOURCE_LABEL = 'Foreclosure Monitor'
+
 export default function FollowUps() {
   const [leads, setLeads] = useState([])
   const [admins, setAdmins] = useState([])
+  const [sourcesById, setSourcesById] = useState({})
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [loading, setLoading] = useState(true)
 
@@ -153,22 +163,36 @@ export default function FollowUps() {
 
     async function load() {
       const today = todayISODate()
-      const [stagesRes, leadsRes, adminsRes] = await Promise.all([
+      const [stagesRes, leadsRes, adminsRes, sourcesRes] = await Promise.all([
         supabase.from('stages').select('id, is_terminal'),
         supabase
           .from('leads')
-          .select('id, name, phone, property_address, temperature, next_follow_up, stage, assigned_to')
+          .select('id, name, phone, property_address, temperature, next_follow_up, stage, assigned_to, source')
           .is('archived_at', null)
           .lte('next_follow_up', today)
           .order('next_follow_up', { ascending: true }),
         // 'admin' and 'member' are both real team members who can be assigned leads.
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
+        supabase.from('sources').select('id, label'),
       ])
 
       if (!active) return
 
       const terminalIds = new Set(arr(stagesRes.data).filter((s) => s.is_terminal).map((s) => s.id))
       const filtered = arr(leadsRes.data).filter((l) => l.next_follow_up && !terminalIds.has(l.stage))
+
+      const srcMap = {}
+      for (const s of arr(sourcesRes.data)) srcMap[s.id] = s
+      setSourcesById(srcMap)
+
+      // Foreclosure leads bubble to the top regardless of exact due date —
+      // their clock (the sale date) runs faster than a normal lead's.
+      filtered.sort((a, b) => {
+        const aForeclosure = srcMap[a.source]?.label === FORECLOSURE_SOURCE_LABEL ? 0 : 1
+        const bForeclosure = srcMap[b.source]?.label === FORECLOSURE_SOURCE_LABEL ? 0 : 1
+        return aForeclosure - bForeclosure || a.next_follow_up.localeCompare(b.next_follow_up)
+      })
+
       setLeads(filtered)
       setAdmins(arr(adminsRes.data))
       setLoading(false)
@@ -228,7 +252,12 @@ export default function FollowUps() {
         ) : (
           <div className="space-y-3">
             {visibleLeads.map((lead) => (
-              <FollowUpCard key={lead.id} lead={lead} ownerName={adminsById[lead.assigned_to]} />
+              <FollowUpCard
+                key={lead.id}
+                lead={lead}
+                ownerName={adminsById[lead.assigned_to]}
+                isForeclosure={sourcesById[lead.source]?.label === FORECLOSURE_SOURCE_LABEL}
+              />
             ))}
           </div>
         )}

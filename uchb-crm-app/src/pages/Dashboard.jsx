@@ -22,14 +22,21 @@ const STAGE_BAR_COLORS = {
   gray: 'bg-gray-400',
 }
 
-// Under Contract going quiet is the most urgent — money is on the table.
-// Overdue follow-ups next (already missed a promised touch). Hot leads
-// cooling off last (still valuable, but nothing's overdue yet).
+// New foreclosure leads first — speed-to-lead matters most on a fresh
+// opportunity, and foreclosure has a real deadline (the sale date) behind
+// it. Under Contract going quiet next — money is on the table. Follow-ups
+// due/overdue next (a promised touch). Foreclosure leads going quiet rank
+// above general Hot leads since their clock is ticking. Hot leads cooling
+// off last (still valuable, but nothing's overdue yet).
 const PRIORITY = {
-  under_contract_quiet: 1,
-  overdue_follow_up: 2,
-  hot_quiet: 3,
+  new_foreclosure: 1,
+  under_contract_quiet: 2,
+  follow_up_due: 3,
+  foreclosure_quiet: 4,
+  hot_quiet: 5,
 }
+
+const FORECLOSURE_SOURCE_LABEL = 'Foreclosure Monitor'
 
 function todayISODate() {
   const d = new Date()
@@ -46,9 +53,15 @@ function daysSince(dateLike) {
   return Math.floor((Date.now() - then) / 86400000)
 }
 
-function buildAttentionItems(leads, stages, lastActivityByLead) {
+function buildAttentionItems(leads, stages, lastActivityByLead, sourcesById) {
   const terminalIds = new Set(stages.filter((s) => s.is_terminal).map((s) => s.id))
   const underContractId = stages.find((s) => s.label === 'Under Contract')?.id
+  // The earliest non-terminal stage, whatever it's labeled (read from
+  // sort_order, never hard-coded) — a foreclosure lead still sitting here
+  // hasn't been touched yet.
+  const earliestActiveStageId = [...stages]
+    .filter((s) => !s.is_terminal)
+    .sort((a, b) => a.sort_order - b.sort_order)[0]?.id
   const today = todayISODate()
 
   const items = []
@@ -56,8 +69,20 @@ function buildAttentionItems(leads, stages, lastActivityByLead) {
   for (const lead of leads) {
     if (terminalIds.has(lead.stage)) continue
 
+    const isForeclosure = sourcesById[lead.source]?.label === FORECLOSURE_SOURCE_LABEL
     const lastContact = lastActivityByLead[lead.id] || lead.created_at
     const quietDays = daysSince(lastContact)
+
+    if (isForeclosure && earliestActiveStageId && lead.stage === earliestActiveStageId) {
+      items.push({
+        lead,
+        priority: PRIORITY.new_foreclosure,
+        sortKey: lead.created_at,
+        tag: 'Foreclosure',
+        reason: 'New foreclosure lead — reach out today',
+      })
+      continue
+    }
 
     if (underContractId && lead.stage === underContractId && quietDays >= 2) {
       items.push({
@@ -69,12 +94,26 @@ function buildAttentionItems(leads, stages, lastActivityByLead) {
       continue
     }
 
-    if (lead.next_follow_up && lead.next_follow_up < today) {
+    if (lead.next_follow_up && lead.next_follow_up <= today) {
       items.push({
         lead,
-        priority: PRIORITY.overdue_follow_up,
+        priority: PRIORITY.follow_up_due,
         sortKey: lead.next_follow_up,
-        reason: `Follow-up overdue since ${fmtDate(lead.next_follow_up)}`,
+        reason:
+          lead.next_follow_up === today
+            ? 'Follow-up due today'
+            : `Follow-up overdue since ${fmtDate(lead.next_follow_up)}`,
+      })
+      continue
+    }
+
+    if (isForeclosure && quietDays >= 1) {
+      items.push({
+        lead,
+        priority: PRIORITY.foreclosure_quiet,
+        sortKey: -quietDays,
+        tag: 'Foreclosure',
+        reason: `Foreclosure lead, no activity in ${quietDays}d — time-sensitive`,
       })
       continue
     }
@@ -95,7 +134,7 @@ function buildAttentionItems(leads, stages, lastActivityByLead) {
 
 function AttentionCard({ item, ownerName }) {
   const navigate = useNavigate()
-  const { lead, reason } = item
+  const { lead, reason, tag } = item
 
   return (
     <button
@@ -104,7 +143,14 @@ function AttentionCard({ item, ownerName }) {
       className="block w-full rounded-2xl bg-white p-4 text-left shadow-sm active:bg-uchb-cream"
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="font-semibold text-uchb-teal">{safeStr(lead.name) || 'Unnamed lead'}</p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate font-semibold text-uchb-teal">{safeStr(lead.name) || 'Unnamed lead'}</p>
+          {tag && (
+            <span className="shrink-0 rounded-full bg-uchb-teal px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-uchb-cream">
+              {tag}
+            </span>
+          )}
+        </div>
         <OwnerChip name={ownerName} />
       </div>
       <p className="mt-0.5 text-sm text-uchb-teal/70">{safeStr(lead.property_address) || 'No address'}</p>
@@ -235,6 +281,7 @@ export default function Dashboard() {
   const [stages, setStages] = useState([])
   const [leads, setLeads] = useState([])
   const [admins, setAdmins] = useState([])
+  const [sources, setSources] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState({})
   const [loading, setLoading] = useState(true)
 
@@ -242,14 +289,15 @@ export default function Dashboard() {
     let active = true
 
     async function load() {
-      const [stagesRes, leadsRes, adminsRes, activityRes] = await Promise.all([
+      const [stagesRes, leadsRes, adminsRes, activityRes, sourcesRes] = await Promise.all([
         supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
         supabase
           .from('leads')
-          .select('id, name, property_address, temperature, stage, assigned_to, next_follow_up, created_at')
+          .select('id, name, property_address, temperature, stage, assigned_to, source, next_follow_up, created_at')
           .is('archived_at', null),
         supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'member']),
         supabase.from('lead_activity').select('lead_id, created_at').order('created_at', { ascending: false }),
+        supabase.from('sources').select('id, label'),
       ])
 
       if (!active) return
@@ -257,6 +305,7 @@ export default function Dashboard() {
       setStages(arr(stagesRes.data))
       setLeads(arr(leadsRes.data))
       setAdmins(arr(adminsRes.data))
+      setSources(arr(sourcesRes.data))
 
       const lastByLead = {}
       for (const a of arr(activityRes.data)) {
@@ -276,6 +325,9 @@ export default function Dashboard() {
   const adminsById = {}
   for (const a of admins) adminsById[a.id] = a.full_name || a.email
 
+  const sourcesById = {}
+  for (const s of sources) sourcesById[s.id] = s
+
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000)
   const newThisWeek = leads.filter((l) => l.created_at && new Date(l.created_at) >= sevenDaysAgo).length
 
@@ -285,7 +337,7 @@ export default function Dashboard() {
   }))
   const maxCount = Math.max(1, ...countByStage.map((s) => s.count))
 
-  const attentionItems = buildAttentionItems(leads, stages, lastActivityByLead)
+  const attentionItems = buildAttentionItems(leads, stages, lastActivityByLead, sourcesById)
 
   return (
     <div className="min-h-screen bg-uchb-cream">
@@ -317,28 +369,24 @@ export default function Dashboard() {
               )}
             </div>
 
-            <div className="rounded-2xl bg-uchb-teal p-4 text-center shadow-sm">
-              <p className="text-2xl font-bold text-uchb-cream">{newThisWeek}</p>
-              <p className="mt-0.5 text-xs text-uchb-cream/70">
-                New lead{newThisWeek === 1 ? '' : 's'} this week
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-white p-4 shadow-sm">
-              <p className="mb-3 text-sm font-semibold text-uchb-teal">Leads by stage</p>
-              <div className="space-y-2.5">
+            <div className="rounded-xl bg-white/60 p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between text-xs text-uchb-teal/50">
+                <span>Leads by stage</span>
+                <span className="font-semibold text-uchb-teal/70">
+                  {newThisWeek} new this week
+                </span>
+              </div>
+              <div className="space-y-1.5">
                 {countByStage.map((s) => (
-                  <div key={s.id}>
-                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-uchb-teal/70">
-                      <span>{s.label}</span>
-                      <span>{s.count}</span>
-                    </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-uchb-teal/5">
+                  <div key={s.id} className="flex items-center gap-2">
+                    <span className="w-20 shrink-0 truncate text-[11px] text-uchb-teal/50">{s.label}</span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-uchb-teal/5">
                       <div
                         className={`h-full rounded-full ${STAGE_BAR_COLORS[s.color] || STAGE_BAR_COLORS.gray}`}
                         style={{ width: `${(s.count / maxCount) * 100}%` }}
                       />
                     </div>
+                    <span className="w-4 shrink-0 text-right text-[11px] text-uchb-teal/50">{s.count}</span>
                   </div>
                 ))}
               </div>
