@@ -14,6 +14,8 @@ import FollowUps from './pages/FollowUps'
 import AdminUsers from './pages/AdminUsers'
 import AdminActivity from './pages/AdminActivity'
 import Help from './pages/Help'
+import Guides from './pages/Guides'
+import GuideDetail from './pages/GuideDetail'
 
 function AuthLinkExpired({ onDismiss }) {
   return (
@@ -125,6 +127,22 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Help />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/guides"
+        element={
+          <ProtectedRoute>
+            <Guides />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/guides/:slug"
+        element={
+          <ProtectedRoute>
+            <GuideDetail />
           </ProtectedRoute>
         }
       />

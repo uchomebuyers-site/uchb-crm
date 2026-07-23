@@ -9,6 +9,7 @@ const BASE_LINKS = [
   { to: '/leads', label: 'Leads' },
   { to: '/pipeline', label: 'Pipeline' },
   { to: '/follow-ups', label: 'Follow-ups' },
+  { to: '/guides', label: 'Call Guides' },
   { to: '/help', label: 'Help' },
 ]
 
