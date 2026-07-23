@@ -4,6 +4,7 @@ import { supabase, fmtCurrency, fmtDate, fmtPhone } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import Skeleton from '../components/Skeleton'
+import PropertyPhoto from '../components/PropertyPhoto'
 
 const inputClasses =
   'w-full rounded-xl border border-uchb-teal/20 px-4 py-3 text-base text-uchb-teal focus:outline-none focus:ring-2 focus:ring-uchb-gold'
@@ -365,6 +366,7 @@ function ContactSection({ lead, sourcesById, sources, patchLead }) {
   if (!editing) {
     return (
       <section className="space-y-2 rounded-2xl bg-white p-4 shadow-sm">
+        {lead.property_address && <PropertyPhoto address={lead.property_address} />}
         {lead.phone && (
           <a href={`tel:${lead.phone}`} className="block text-uchb-teal underline">
             {fmtPhone(lead.phone)}
