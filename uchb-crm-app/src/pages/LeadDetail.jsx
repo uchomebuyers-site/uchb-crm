@@ -560,6 +560,182 @@ function TagsSection({ leadId, allTags, leadTagIds, onTagsChange }) {
   )
 }
 
+const ENRICHMENT_TYPES = [
+  { key: 'property_lookup', label: 'Owner & Tax Info' },
+  { key: 'value_estimate', label: 'Value Estimate' },
+  { key: 'rent_estimate', label: 'Rent Estimate' },
+  { key: 'skip_trace', label: 'Skip Trace' },
+]
+
+function EnrichmentSummary({ type, summary }) {
+  if (!summary) return null
+
+  if (type === 'property_lookup') {
+    return (
+      <div className="space-y-1 text-sm text-uchb-teal">
+        {summary.owner && (
+          <p>
+            <span className="text-uchb-teal/60">Owner:</span> {summary.owner}
+            {summary.ownerType ? ` (${summary.ownerType})` : ''}
+          </p>
+        )}
+        {summary.ownerOccupied !== null && summary.ownerOccupied !== undefined && (
+          <p>
+            <span className="text-uchb-teal/60">Owner occupied:</span> {summary.ownerOccupied ? 'Yes' : 'No — absentee'}
+          </p>
+        )}
+        {summary.ownerMailingAddress && (
+          <p>
+            <span className="text-uchb-teal/60">Mailing address:</span> {summary.ownerMailingAddress}
+          </p>
+        )}
+        {summary.county && (
+          <p>
+            <span className="text-uchb-teal/60">County:</span> {summary.county}
+          </p>
+        )}
+        {summary.latestTaxAssessment?.value != null && (
+          <p>
+            <span className="text-uchb-teal/60">Tax assessed value:</span> {fmtCurrency(summary.latestTaxAssessment.value)}
+          </p>
+        )}
+        {summary.latestPropertyTax?.total != null && (
+          <p>
+            <span className="text-uchb-teal/60">Annual property tax:</span> {fmtCurrency(summary.latestPropertyTax.total)}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  if (type === 'value_estimate' || type === 'rent_estimate') {
+    const amount = type === 'value_estimate' ? summary.estimatedValue : summary.estimatedRent
+    return (
+      <div className="space-y-1 text-sm text-uchb-teal">
+        {amount != null && (
+          <p className="text-lg font-semibold">
+            {fmtCurrency(amount)}
+            {type === 'rent_estimate' ? '/mo' : ''}
+          </p>
+        )}
+        {(summary.low != null || summary.high != null) && (
+          <p className="text-uchb-teal/60">
+            Range: {fmtCurrency(summary.low)} – {fmtCurrency(summary.high)}
+          </p>
+        )}
+        {summary.comparableCount > 0 && (
+          <p className="text-xs text-uchb-teal/50">Based on {summary.comparableCount} comparables</p>
+        )}
+      </div>
+    )
+  }
+
+  if (type === 'skip_trace') {
+    return (
+      <div className="space-y-1.5 text-sm text-uchb-teal">
+        {summary.ownerName && <p className="font-medium">{summary.ownerName}</p>}
+        {(summary.phones || []).map((p, i) => (
+          <p key={i} className="flex items-center gap-2">
+            <a href={`tel:${p.number}`} className="underline">
+              {fmtPhone(p.number)}
+            </a>
+            {p.type && <span className="text-xs text-uchb-teal/50">{p.type}</span>}
+            {p.dnc && (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">DNC</span>
+            )}
+          </p>
+        ))}
+        {(summary.emails || []).map((e, i) => {
+          const email = typeof e === 'string' ? e : e.email
+          return (
+            <p key={i}>
+              <a href={`mailto:${email}`} className="underline">
+                {email}
+              </a>
+            </p>
+          )
+        })}
+        {summary.mailingAddress && (
+          <p className="text-uchb-teal/60">
+            {[summary.mailingAddress.street, summary.mailingAddress.city, summary.mailingAddress.state, summary.mailingAddress.zip]
+              .filter(Boolean)
+              .join(', ')}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  return null
+}
+
+function ResearchSection({ leadId, enrichments, onPulled, authorsById }) {
+  const { showToast } = useToast()
+  const [pulling, setPulling] = useState(null)
+  const [cooldown, setCooldown] = useState({})
+
+  async function pull(type) {
+    setPulling(type)
+    const { data, error } = await supabase.functions.invoke('lead-enrichment', { body: { action: type, leadId } })
+    setPulling(null)
+
+    if (error || data?.error) {
+      showToast(data?.error || error?.message || 'Lookup failed.', 'error')
+      return
+    }
+
+    showToast(data.status === 'no_match' ? 'No match found.' : 'Pulled.')
+    onPulled(type, { status: data.status, summary: data.summary, created_at: new Date().toISOString() })
+
+    setCooldown((prev) => ({ ...prev, [type]: true }))
+    setTimeout(() => setCooldown((prev) => ({ ...prev, [type]: false })), 30000)
+  }
+
+  const ownerSummary = enrichments.property_lookup?.summary?.owner
+
+  return (
+    <CollapsibleSection title="Research" summary={ownerSummary ? `Owner: ${ownerSummary}` : null}>
+      <div className="space-y-3">
+        {ENRICHMENT_TYPES.map(({ key, label }) => {
+          const record = enrichments[key]
+          const isPulling = pulling === key
+          const onCooldown = cooldown[key]
+
+          return (
+            <div key={key} className="rounded-xl bg-uchb-cream/60 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-uchb-teal">{label}</p>
+                <button
+                  type="button"
+                  onClick={() => pull(key)}
+                  disabled={isPulling || onCooldown}
+                  className="rounded-lg bg-uchb-teal px-3 py-1.5 text-xs font-medium text-uchb-cream disabled:opacity-50"
+                >
+                  {isPulling ? 'Pulling…' : record ? 'Refresh' : 'Pull'}
+                </button>
+              </div>
+              {record && (
+                <div className="mt-2 border-t border-uchb-teal/10 pt-2">
+                  <p className="mb-1 text-xs text-uchb-teal/50">
+                    {record.status === 'no_match'
+                      ? 'No match'
+                      : record.status === 'error'
+                        ? 'Lookup failed'
+                        : `Pulled ${fmtDate(record.created_at)}${
+                            record.requested_by ? ` by ${authorsById[record.requested_by] || 'someone'}` : ''
+                          }`}
+                  </p>
+                  <EnrichmentSummary type={key} summary={record.summary} />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
 function ArchiveSection({ leadId, authorId, navigate }) {
   const { showToast } = useToast()
   const [confirming, setConfirming] = useState(false)
@@ -664,6 +840,7 @@ export default function LeadDetail() {
   const [admins, setAdmins] = useState([])
   const [allTags, setAllTags] = useState([])
   const [leadTagIds, setLeadTagIds] = useState([])
+  const [enrichments, setEnrichments] = useState({})
   const [loading, setLoading] = useState(true)
 
   const [activityType, setActivityType] = useState('call')
@@ -675,15 +852,21 @@ export default function LeadDetail() {
 
     async function load() {
       setLoading(true)
-      const [leadRes, stagesRes, sourcesRes, activitiesRes, profilesRes, tagsRes, leadTagsRes] = await Promise.all([
-        supabase.from('leads').select('*').eq('id', id).single(),
-        supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
-        supabase.from('sources').select('id, label'),
-        supabase.from('lead_activity').select('*').eq('lead_id', id).order('created_at', { ascending: false }),
-        supabase.from('profiles').select('id, full_name, email, role'),
-        supabase.from('tags').select('id, label').order('label'),
-        supabase.from('lead_tags').select('tag_id').eq('lead_id', id),
-      ])
+      const [leadRes, stagesRes, sourcesRes, activitiesRes, profilesRes, tagsRes, leadTagsRes, enrichmentsRes] =
+        await Promise.all([
+          supabase.from('leads').select('*').eq('id', id).single(),
+          supabase.from('stages').select('id, label, sort_order, is_terminal, color').order('sort_order'),
+          supabase.from('sources').select('id, label'),
+          supabase.from('lead_activity').select('*').eq('lead_id', id).order('created_at', { ascending: false }),
+          supabase.from('profiles').select('id, full_name, email, role'),
+          supabase.from('tags').select('id, label').order('label'),
+          supabase.from('lead_tags').select('tag_id').eq('lead_id', id),
+          supabase
+            .from('lead_enrichments')
+            .select('type, status, summary, created_at, requested_by')
+            .eq('lead_id', id)
+            .order('created_at', { ascending: false }),
+        ])
 
       if (!active) return
 
@@ -702,6 +885,13 @@ export default function LeadDetail() {
       setActivities(arr(activitiesRes.data))
       setAllTags(arr(tagsRes.data))
       setLeadTagIds(arr(leadTagsRes.data).map((r) => r.tag_id))
+
+      const latestByType = {}
+      for (const row of arr(enrichmentsRes.data)) {
+        if (!latestByType[row.type]) latestByType[row.type] = row
+      }
+      setEnrichments(latestByType)
+
       setLoading(false)
     }
 
@@ -834,6 +1024,15 @@ export default function LeadDetail() {
         <ContactSection lead={lead} sourcesById={sourcesById} patchLead={patchLead} />
 
         <TagsSection leadId={id} allTags={allTags} leadTagIds={leadTagIds} onTagsChange={setLeadTagIds} />
+
+        <ResearchSection
+          leadId={id}
+          enrichments={enrichments}
+          authorsById={authorsById}
+          onPulled={(type, record) =>
+            setEnrichments((prev) => ({ ...prev, [type]: { ...record, requested_by: session?.user?.id } }))
+          }
+        />
 
         <section className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
           <div>
