@@ -954,7 +954,8 @@ export default function LeadDetail() {
             {activities.map((a) => (
               <div key={a.id} className={`border-l-2 border-uchb-teal/20 pl-3 ${a._pending ? 'opacity-50' : ''}`}>
                 <p className="text-xs font-medium text-uchb-teal/60">
-                  <span className="capitalize">{a.type}</span> &middot; {authorsById[a.author_id] || 'Unknown'} &middot;{' '}
+                  <span className="capitalize">{a.type}</span> &middot;{' '}
+                  {a.author_id ? authorsById[a.author_id] || 'Unknown' : 'Hermes (automated)'} &middot;{' '}
                   {fmtDate(a.created_at)}
                 </p>
                 <p className="text-uchb-teal text-sm">{a.body}</p>
